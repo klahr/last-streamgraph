@@ -1,13 +1,23 @@
 /**
  * Promise-based client for the data-processing Web Worker.
  *
- * A single worker is reused for the app's lifetime. Each request carries a
- * monotonic id; only the latest in-flight request resolves — superseded ones
- * reject with a benign "stale" error the caller can ignore. This means rapid
- * config changes (dragging the artist-limit slider) never pile up work.
+ * The dataset is uploaded once via {@link ProcessClient.setData}; subsequent
+ * {@link ProcessClient.process} calls send only a small config object, so
+ * config changes don't re-clone the (potentially huge) scrobble array across
+ * the thread boundary.
+ *
+ * Each `process` carries a monotonic id; only the latest in-flight request
+ * resolves — superseded ones reject with {@link StaleRequestError} the caller
+ * can ignore. So rapid config changes (dragging the artist-limit slider) never
+ * pile up work.
  */
-import type { ProcessedData, ProcessRequest } from '../types';
-import type { WorkerRequest, WorkerResponse } from './dataProcessor.worker';
+import type { ProcessedData } from '../types';
+import type {
+  ProcessConfig,
+  WorkerRequest,
+  WorkerResponse,
+} from './dataProcessor.worker';
+import type { CountableScrobble } from '../utils/dataProcessor';
 
 export class StaleRequestError extends Error {
   constructor() {
@@ -45,7 +55,13 @@ export class ProcessClient {
     };
   }
 
-  process(payload: ProcessRequest): Promise<ProcessedData> {
+  /** Upload the dataset to the worker (clears its per-resolution cache). */
+  setData(scrobbles: CountableScrobble[]): void {
+    this.worker.postMessage({ type: 'data', scrobbles } satisfies WorkerRequest);
+  }
+
+  /** Process the already-uploaded dataset with the given config. */
+  process(config: ProcessConfig): Promise<ProcessedData> {
     const id = this.nextId++;
     this.latestId = id;
     // Reject any still-pending older requests up front.
@@ -57,8 +73,7 @@ export class ProcessClient {
     }
     return new Promise<ProcessedData>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
-      const msg: WorkerRequest = { id, payload };
-      this.worker.postMessage(msg);
+      this.worker.postMessage({ type: 'process', id, config } satisfies WorkerRequest);
     });
   }
 

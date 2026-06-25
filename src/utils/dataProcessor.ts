@@ -73,32 +73,35 @@ function labelForStart(start: number, resolution: Resolution): string {
   return bucketFor(Math.floor(start / 1000) + 1, resolution).label;
 }
 
+/** Minimal scrobble shape the pipeline actually reads. */
+export interface CountableScrobble {
+  artist: string;
+  uts: number;
+}
+
 /**
- * Transform raw scrobbles into a dense per-bucket count matrix.
- *
- * - Filters to an optional [from, to] range (epoch ms).
- * - Selects artists by the **union of per-interval top-`topN`**: an artist
- *   becomes a stream if it ranked in the top `topN` of *any* single bucket.
- *   This surfaces artists who dominated one period even if their all-time
- *   total is modest. Non-selected plays fold into "Others" or are discarded.
- * - Emits every bucket between the first and last play (zero-filled) so the
- *   stream flows continuously with no gaps on the time axis.
+ * The expensive, config-independent part: scan every scrobble once into a
+ * per-bucket / per-artist count map. This is the only step that touches all N
+ * scrobbles, so callers cache it per resolution and reuse it across cheap
+ * config changes (top-N, mode, palette).
  */
-export function processScrobbles(req: ProcessRequest): ProcessedData {
-  const { resolution, topN, othersMode } = req;
-  const from = req.from ?? -Infinity;
-  const to = req.to ?? Infinity;
+export interface Aggregation {
+  resolution: Resolution;
+  bucketMap: Map<number, Map<string, number>>;
+  artistTotals: Map<string, number>;
+  minStart: number;
+  maxStart: number;
+}
 
-  const scrobbles = req.scrobbles.filter((s) => {
-    const ms = s.uts * 1000;
-    return ms >= from && ms <= to;
-  });
-
-  if (scrobbles.length === 0) {
-    return { keys: [], matrix: [], totals: {}, grandTotal: 0 };
-  }
-
-  // 1. Accumulate full per-artist counts per bucket + overall totals.
+/**
+ * Build an {@link Aggregation} from raw scrobbles. Range filtering is applied
+ * later in {@link buildFromAggregation} (at bucket granularity) so the full
+ * aggregation can be cached and reused while a date slider is dragged.
+ */
+export function aggregate(
+  scrobbles: readonly CountableScrobble[],
+  resolution: Resolution,
+): Aggregation {
   const bucketMap = new Map<number, Map<string, number>>();
   const artistTotals = new Map<string, number>();
   let minStart = Infinity;
@@ -117,58 +120,127 @@ export function processScrobbles(req: ProcessRequest): ProcessedData {
     artistTotals.set(s.artist, (artistTotals.get(s.artist) ?? 0) + 1);
   }
 
-  // 2. Selection: union of each bucket's top-`topN` artists. Ties broken by
-  //    name so the result is deterministic.
+  return { resolution, bucketMap, artistTotals, minStart, maxStart };
+}
+
+/**
+ * The cheap part: from a precomputed {@link Aggregation}, select the
+ * **union of per-interval top-`topN`** artists, fold the rest into "Others"
+ * (or discard), and emit a dense, zero-filled matrix. Touches buckets/artists,
+ * not the full scrobble list — fast enough to re-run on every slider tick.
+ *
+ * The union can explode (top-100 per month over ~17 years ≈ 5,000 artists),
+ * which is both unrenderable and visually meaningless. So we keep only the
+ * top `maxStreams` of the union by overall total; the long tail folds into
+ * "Others" (or is discarded). This bounds the path count the renderer sees.
+ */
+export const DEFAULT_MAX_STREAMS = 150;
+
+export function buildFromAggregation(
+  agg: Aggregation,
+  opts: {
+    topN: number;
+    othersMode: OthersMode;
+    maxStreams?: number;
+    /** Inclusive bucket-level date window (epoch ms). Omit for all-time. */
+    from?: number;
+    to?: number;
+  },
+): ProcessedData {
+  const { resolution, bucketMap, minStart, maxStart } = agg;
+  const { topN, othersMode } = opts;
+  const maxStreams = opts.maxStreams ?? DEFAULT_MAX_STREAMS;
+  const from = opts.from ?? -Infinity;
+  const to = opts.to ?? Infinity;
+  const ranged = opts.from != null || opts.to != null;
+  const inRange = (start: number) => start >= from && start <= to;
+
+  if (bucketMap.size === 0) {
+    return { keys: [], matrix: [], totals: {}, grandTotal: 0 };
+  }
+
+  // Selection: union of each in-range bucket's top-`topN` (ties broken by name).
+  // When ranged we also recompute per-artist totals over the window (the
+  // cached agg.artistTotals is all-time); otherwise reuse the cached totals.
   const selected = new Set<string>();
-  for (const row of bucketMap.values()) {
+  const artistTotals = ranged ? new Map<string, number>() : agg.artistTotals;
+  for (const [start, row] of bucketMap) {
+    if (!inRange(start)) continue;
     const top = [...row.entries()]
       .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
       .slice(0, topN);
     for (const [artist] of top) selected.add(artist);
+    if (ranged) {
+      for (const [a, c] of row) artistTotals.set(a, (artistTotals.get(a) ?? 0) + c);
+    }
   }
 
-  const hasOthers =
-    othersMode === 'group' &&
-    [...artistTotals.keys()].some((a) => !selected.has(a));
+  if (selected.size === 0) {
+    return { keys: [], matrix: [], totals: {}, grandTotal: 0 };
+  }
 
-  // 3. Ordered keys: selected artists by overall total desc, "Others" last.
-  const keys = [...selected].sort(
+  // Rank the union by overall total and cap to `maxStreams` renderable streams.
+  const ranked = [...selected].sort(
     (a, b) =>
       (artistTotals.get(b) ?? 0) - (artistTotals.get(a) ?? 0) ||
       (a < b ? -1 : 1),
   );
+  const keptList = ranked.slice(0, maxStreams);
+  const kept = new Set(keptList);
+
+  // "Others" absorbs everything not kept: artists outside the union AND the
+  // capped tail of the union.
+  const hasOthers =
+    othersMode === 'group' &&
+    [...artistTotals.keys()].some((a) => !kept.has(a));
+
+  const keys = [...keptList];
   if (hasOthers) keys.push(OTHERS_KEY);
 
-  // 4. Per-key full-range totals (Others = sum of all non-selected plays).
   const totals: Record<string, number> = {};
-  for (const k of selected) totals[k] = artistTotals.get(k) ?? 0;
+  for (const k of kept) totals[k] = artistTotals.get(k) ?? 0;
   if (hasOthers) {
     let others = 0;
-    for (const [a, c] of artistTotals) if (!selected.has(a)) others += c;
+    for (const [a, c] of artistTotals) if (!kept.has(a)) others += c;
     totals[OTHERS_KEY] = others;
   }
   const grandTotal = keys.reduce((sum, k) => sum + (totals[k] ?? 0), 0);
 
-  // 5. Dense matrix across the full span (zero-filled); non-selected plays
-  //    fold into Others per bucket when grouping.
   const matrix: StackDatum[] = [];
   for (
     let start = minStart;
     start <= maxStart;
     start = nextBucketStart(start, resolution)
   ) {
+    if (!inRange(start)) continue;
     const row = bucketMap.get(start);
     const datum: StackDatum = { date: start, label: labelForStart(start, resolution) };
-    for (const k of selected) datum[k] = row?.get(k) ?? 0;
+    for (const k of kept) datum[k] = row?.get(k) ?? 0;
     if (hasOthers) {
       let others = 0;
-      if (row) for (const [a, c] of row) if (!selected.has(a)) others += c;
+      if (row) for (const [a, c] of row) if (!kept.has(a)) others += c;
       datum[OTHERS_KEY] = others;
     }
     matrix.push(datum);
   }
 
   return { keys, matrix, totals, grandTotal };
+}
+
+/**
+ * Transform raw scrobbles into a dense per-bucket count matrix — the union of
+ * per-interval top-`topN` artists over a continuous, zero-filled time axis.
+ * Equivalent to `buildFromAggregation(aggregate(...), ...)`; kept as a
+ * one-shot entry point for tests and callers without a cache.
+ */
+export function processScrobbles(req: ProcessRequest): ProcessedData {
+  const agg = aggregate(req.scrobbles, req.resolution);
+  return buildFromAggregation(agg, {
+    topN: req.topN,
+    othersMode: req.othersMode,
+    from: req.from,
+    to: req.to,
+  });
 }
 
 /** Convenience wrapper used by tests / callers that already hold an array. */

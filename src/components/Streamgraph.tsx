@@ -55,6 +55,8 @@ interface TooltipState {
 
 const MARGIN = { top: 16, right: 16, bottom: 28, left: 48 };
 const TRANSITION_MS = 600;
+/** Above this many simultaneous streams, skip the `d` morph (too costly to animate). */
+const ANIMATE_MAX_LAYERS = 80;
 
 export function Streamgraph({ data, size, mode, palette, resolution }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -118,7 +120,17 @@ export function Streamgraph({ data, size, mode, palette, resolution }: Props) {
       )
       .data(series, (s) => s.key);
 
-    layers.exit().transition().duration(TRANSITION_MS).style('opacity', 0).remove();
+    // Morphing the `d` of every path each frame is O(paths × points) per frame
+    // and dominates render time once there are many streams (a top-100 union
+    // can be 800+ paths → multi-second freeze). Above a threshold the morph is
+    // visual mush anyway, so set geometry directly and skip the transition.
+    const animate = series.length <= ANIMATE_MAX_LAYERS;
+
+    if (animate) {
+      layers.exit().transition().duration(TRANSITION_MS).style('opacity', 0).remove();
+    } else {
+      layers.exit().remove();
+    }
 
     const enter = layers
       .enter()
@@ -126,7 +138,7 @@ export function Streamgraph({ data, size, mode, palette, resolution }: Props) {
       .attr('class', 'sg-layer')
       .attr('fill', (s) => colorMap[s.key] ?? '#888')
       .attr('d', areaGen)
-      .style('opacity', 0)
+      .style('opacity', animate ? 0 : 1)
       .style('cursor', 'pointer');
 
     // Hover interactions: dim siblings, raise & outline the active layer.
@@ -160,13 +172,17 @@ export function Streamgraph({ data, size, mode, palette, resolution }: Props) {
         setTooltip(null);
       });
 
-    // Animate enters in and update existing layers' geometry + color.
-    enter.transition().duration(TRANSITION_MS).style('opacity', 1);
-    layers
-      .transition()
-      .duration(TRANSITION_MS)
-      .attr('fill', (s) => colorMap[s.key] ?? '#888')
-      .attr('d', areaGen);
+    // Update existing layers' geometry + color (animated only when few enough).
+    if (animate) {
+      enter.transition().duration(TRANSITION_MS).style('opacity', 1);
+      layers
+        .transition()
+        .duration(TRANSITION_MS)
+        .attr('fill', (s) => colorMap[s.key] ?? '#888')
+        .attr('d', areaGen);
+    } else {
+      layers.attr('fill', (s) => colorMap[s.key] ?? '#888').attr('d', areaGen);
+    }
 
     // --- X axis -----------------------------------------------------------
     const tickFmt = timeFormat(

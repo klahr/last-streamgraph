@@ -1,7 +1,11 @@
 /**
  * Run the scrobble-processing pipeline in a Web Worker, re-running (debounced)
- * whenever the scrobble set or relevant config changes. Stale results are
- * dropped by the worker client, so dragging the artist-limit slider stays
+ * whenever the scrobble set or relevant config changes.
+ *
+ * The dataset is uploaded to the worker only when it actually changes; pure
+ * config changes (top-N, resolution, mode) send just a small config object, so
+ * toggling never re-clones the full scrobble array across the thread boundary.
+ * Stale results are dropped by the worker client, so dragging a slider stays
  * smooth.
  */
 import { useEffect, useRef, useState } from 'react';
@@ -28,12 +32,16 @@ export function useProcessedData(
   opts: Options,
 ): { data: ProcessedData; processing: boolean } {
   const clientRef = useRef<ProcessClient | null>(null);
+  const sentRef = useRef<Scrobble[] | null>(null);
   const [data, setData] = useState<ProcessedData>(EMPTY);
   const [processing, setProcessing] = useState(false);
 
   // Lazily create one worker for the component's lifetime.
   if (!clientRef.current) clientRef.current = new ProcessClient();
-  useEffect(() => () => clientRef.current?.terminate(), []);
+  useEffect(() => {
+    const client = clientRef.current;
+    return () => client?.terminate();
+  }, []);
 
   const { resolution, topN, othersMode, from, to } = opts;
 
@@ -41,8 +49,16 @@ export function useProcessedData(
     const client = clientRef.current!;
     setProcessing(true);
     const handle = setTimeout(() => {
+      // Only re-upload the dataset when the array reference actually changed —
+      // pure config changes skip the expensive clone entirely.
+      if (sentRef.current !== scrobbles) {
+        client.setData(
+          scrobbles.map((s) => ({ artist: s.artist, uts: s.uts })),
+        );
+        sentRef.current = scrobbles;
+      }
       client
-        .process({ scrobbles, resolution, topN, othersMode, from, to })
+        .process({ resolution, topN, othersMode, from, to })
         .then((result) => {
           setData(result);
           setProcessing(false);

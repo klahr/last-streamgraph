@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { bucketFor, processScrobbles, OTHERS_KEY } from './dataProcessor';
+import {
+  aggregate,
+  bucketFor,
+  buildFromAggregation,
+  processScrobbles,
+  OTHERS_KEY,
+} from './dataProcessor';
 import type { Scrobble } from '../types';
 
 /** Epoch seconds for a UTC date. */
@@ -137,18 +143,64 @@ describe('processScrobbles', () => {
     expect(res.matrix[1].A).toBe(0); // February has no plays
   });
 
-  it('respects the [from, to] range filter (epoch ms)', () => {
+  it('respects the [from, to] date window at bucket granularity', () => {
+    const data = [
+      mk('A', '2025-01-15T00:00:00Z'),
+      mk('A', '2025-01-16T00:00:00Z'),
+      mk('B', '2025-02-15T00:00:00Z'),
+      mk('C', '2025-03-15T00:00:00Z'),
+      mk('C', '2025-03-16T00:00:00Z'),
+      mk('C', '2025-03-17T00:00:00Z'),
+    ];
+    // Window from Feb 1 onward → January bucket excluded entirely.
     const res = processScrobbles({
-      scrobbles,
+      scrobbles: data,
       resolution: 'monthly',
       topN: 10,
       othersMode: 'group',
-      from: Date.parse('2025-01-11T00:00:00Z'),
+      from: Date.UTC(2025, 1, 1),
     });
-    // Only B (x3) and C (x1) fall on/after the cutoff.
-    expect(res.grandTotal).toBe(4);
+    expect(res.matrix.map((m) => m.label)).toEqual(['2025-02', '2025-03']);
     expect(res.keys).toContain('B');
+    expect(res.keys).toContain('C');
     expect(res.keys).not.toContain('A');
+    expect(res.totals).toEqual({ B: 1, C: 3 }); // in-window totals only
+    expect(res.grandTotal).toBe(4);
+  });
+
+  it('reuses one aggregation across top-N values (matches one-shot)', () => {
+    // Aggregate once, then build at two limits — the perf optimization the
+    // worker relies on. Each build must equal the equivalent processScrobbles.
+    const agg = aggregate(scrobbles, 'monthly');
+    for (const topN of [1, 2, 5]) {
+      const cached = buildFromAggregation(agg, { topN, othersMode: 'group' });
+      const oneShot = processScrobbles({
+        scrobbles,
+        resolution: 'monthly',
+        topN,
+        othersMode: 'group',
+      });
+      expect(cached).toEqual(oneShot);
+    }
+  });
+
+  it('caps rendered streams to maxStreams, folding the tail into Others', () => {
+    // 6 artists, each the sole leader of its own month → union of 6.
+    const months = ['01', '02', '03', '04', '05', '06'];
+    const names = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const data: Scrobble[] = [];
+    names.forEach((name, i) => {
+      // Descending totals so ordering is deterministic: A=6 … F=1.
+      for (let k = 0; k < 6 - i; k++) data.push(mk(name, `2025-${months[i]}-05T00:00:00Z`));
+    });
+    const agg = aggregate(data, 'monthly');
+    const res = buildFromAggregation(agg, { topN: 1, othersMode: 'group', maxStreams: 3 });
+    // Only the 3 highest-total artists keep their own stream; D/E/F → Others.
+    expect(res.keys).toEqual(['A', 'B', 'C', OTHERS_KEY]);
+    expect(res.totals[OTHERS_KEY]).toBe(3 + 2 + 1); // D+E+F
+    // Others is non-zero only in the months those artists led.
+    const apr = res.matrix.find((m) => m.label === '2025-04')!;
+    expect(apr[OTHERS_KEY]).toBe(3); // D's month
   });
 
   it('returns empty output for no scrobbles', () => {

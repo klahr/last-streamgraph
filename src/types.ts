@@ -37,6 +37,16 @@ export interface VizConfig {
   palette: PaletteId;
 }
 
+/** Quick date-window presets plus a custom slider-defined window. */
+export type RangePreset = 'all' | 'month' | 'year' | '5years' | 'custom';
+
+/** Persisted date-range selection. Custom bounds are epoch ms. */
+export interface RangeSelection {
+  preset: RangePreset;
+  from: number | null;
+  to: number | null;
+}
+
 /** Last.fm credentials, persisted to localStorage. */
 export interface Credentials {
   apiKey: string;

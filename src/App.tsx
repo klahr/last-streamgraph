@@ -10,13 +10,42 @@ import { useScrobbleData } from './hooks/useScrobbleData';
 import { useProcessedData } from './hooks/useProcessedData';
 import { useResizeObserver } from './hooks/useResizeObserver';
 import { buildColorMap } from './utils/colors';
-import type { Credentials, Resolution, VizConfig } from './types';
+import type {
+  Credentials,
+  RangeSelection,
+  Resolution,
+  VizConfig,
+} from './types';
 
 const BUCKET_NOUN: Record<Resolution, string> = {
   weekly: 'weeks',
   monthly: 'months',
   yearly: 'years',
 };
+
+const DAY_MS = 86_400_000;
+const DEFAULT_RANGE: RangeSelection = { preset: 'all', from: null, to: null };
+
+/** Resolve a {@link RangeSelection} to concrete [from, to] epoch-ms bounds. */
+function resolveRange(
+  range: RangeSelection,
+  minMs: number,
+  maxMs: number,
+): { from?: number; to?: number } {
+  switch (range.preset) {
+    case 'month':
+      return { from: maxMs - 31 * DAY_MS, to: maxMs };
+    case 'year':
+      return { from: maxMs - 365 * DAY_MS, to: maxMs };
+    case '5years':
+      return { from: maxMs - 5 * 365 * DAY_MS, to: maxMs };
+    case 'custom':
+      return { from: range.from ?? minMs, to: range.to ?? maxMs };
+    case 'all':
+    default:
+      return {};
+  }
+}
 
 const DEFAULT_CONFIG: VizConfig = {
   resolution: 'monthly',
@@ -37,16 +66,37 @@ export default function App() {
     'lsg.config',
     DEFAULT_CONFIG,
   );
+  const [range, setRange] = useLocalStorage<RangeSelection>(
+    'lsg.range',
+    DEFAULT_RANGE,
+  );
 
   const hasCreds = !!creds.apiKey.trim() && !!creds.username.trim();
   const { scrobbles, progress, sync, fullResync } = useScrobbleData(
     hasCreds ? creds : null,
   );
 
+  // Full time span of the cached history (epoch ms), for the date-range control.
+  const span = useMemo(() => {
+    let min = Infinity;
+    let max = -Infinity;
+    for (const s of scrobbles) {
+      if (s.uts < min) min = s.uts;
+      if (s.uts > max) max = s.uts;
+    }
+    return scrobbles.length
+      ? { minMs: min * 1000, maxMs: max * 1000 }
+      : { minMs: 0, maxMs: 0 };
+  }, [scrobbles]);
+
+  const { from, to } = resolveRange(range, span.minMs, span.maxMs);
+
   const { data, processing } = useProcessedData(scrobbles, {
     resolution: config.resolution,
     topN: config.topN,
     othersMode: config.othersMode,
+    from,
+    to,
   });
 
   const [chartRef, size] = useResizeObserver<HTMLDivElement>();
@@ -70,6 +120,10 @@ export default function App() {
         visibleArtists={data.keys.length}
         onSync={sync}
         onFullResync={fullResync}
+        range={range}
+        onRangeChange={setRange}
+        spanMs={span}
+        effectiveRange={{ from, to }}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">

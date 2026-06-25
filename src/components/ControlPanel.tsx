@@ -5,6 +5,8 @@
  */
 import type {
   Credentials,
+  RangePreset,
+  RangeSelection,
   Resolution,
   StreamMode,
   SyncProgress,
@@ -22,9 +24,20 @@ interface Props {
   visibleArtists: number;
   onSync: () => void;
   onFullResync: () => void;
+  range: RangeSelection;
+  onRangeChange: (range: RangeSelection) => void;
+  spanMs: { minMs: number; maxMs: number };
+  effectiveRange: { from?: number; to?: number };
 }
 
 const ARTIST_LIMITS = [10, 20, 50, 100];
+
+const RANGE_PRESETS: { id: RangePreset; label: string }[] = [
+  { id: 'all', label: 'All time' },
+  { id: '5years', label: '5 yrs' },
+  { id: 'year', label: '1 yr' },
+  { id: 'month', label: '1 mo' },
+];
 
 export function ControlPanel({
   creds,
@@ -36,6 +49,10 @@ export function ControlPanel({
   visibleArtists,
   onSync,
   onFullResync,
+  range,
+  onRangeChange,
+  spanMs,
+  effectiveRange,
 }: Props) {
   const syncing = progress.phase === 'syncing';
 
@@ -93,6 +110,38 @@ export function ControlPanel({
             { value: 'yearly', label: 'Yearly' },
           ]}
         />
+      </Section>
+
+      {/* Date range */}
+      <Section title="Date range">
+        <div className="flex gap-1.5">
+          {RANGE_PRESETS.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => onRangeChange({ preset: p.id, from: null, to: null })}
+              className={`flex-1 rounded border px-1.5 py-1 text-xs transition ${
+                range.preset === p.id
+                  ? 'border-sky-500 bg-sky-500/20 text-sky-300'
+                  : 'border-slate-700 text-slate-400 hover:border-slate-600'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        {spanMs.maxMs > spanMs.minMs && (
+          <DateRangeSlider
+            minMs={spanMs.minMs}
+            maxMs={spanMs.maxMs}
+            from={effectiveRange.from ?? spanMs.minMs}
+            to={effectiveRange.to ?? spanMs.maxMs}
+            onChange={(from, to) => onRangeChange({ preset: 'custom', from, to })}
+          />
+        )}
+        <p className="text-xs text-slate-500">
+          {fmtMonth(effectiveRange.from ?? spanMs.minMs)} —{' '}
+          {fmtMonth(effectiveRange.to ?? spanMs.maxMs)}
+        </p>
       </Section>
 
       {/* Stream mode */}
@@ -196,6 +245,66 @@ export function ControlPanel({
 
 const inputCls =
   'w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-sky-500';
+
+/** Format epoch ms as "YYYY-MM" (UTC). */
+function fmtMonth(ms: number): string {
+  if (!Number.isFinite(ms) || ms === 0) return '—';
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Dual-thumb range slider over the history's time span. Two overlaid range
+ * inputs (pointer events only on the thumbs) with a highlighted active track;
+ * thumbs can't cross. Snaps to days.
+ */
+function DateRangeSlider({
+  minMs,
+  maxMs,
+  from,
+  to,
+  onChange,
+}: {
+  minMs: number;
+  maxMs: number;
+  from: number;
+  to: number;
+  onChange: (from: number, to: number) => void;
+}) {
+  const DAY = 86_400_000;
+  const pct = (v: number) => ((v - minMs) / (maxMs - minMs)) * 100;
+  const lo = Math.max(minMs, Math.min(from, to));
+  const hi = Math.min(maxMs, Math.max(from, to));
+  return (
+    <div className="dual-range relative h-5">
+      <div className="absolute top-1/2 h-1 w-full -translate-y-1/2 rounded bg-slate-700" />
+      <div
+        className="absolute top-1/2 h-1 -translate-y-1/2 rounded bg-sky-500"
+        style={{ left: `${pct(lo)}%`, right: `${100 - pct(hi)}%` }}
+      />
+      <input
+        type="range"
+        className="dual-range__input"
+        min={minMs}
+        max={maxMs}
+        step={DAY}
+        value={lo}
+        aria-label="Range start"
+        onChange={(e) => onChange(Math.min(Number(e.target.value), hi), hi)}
+      />
+      <input
+        type="range"
+        className="dual-range__input"
+        min={minMs}
+        max={maxMs}
+        step={DAY}
+        value={hi}
+        aria-label="Range end"
+        onChange={(e) => onChange(lo, Math.max(Number(e.target.value), lo))}
+      />
+    </div>
+  );
+}
 
 function Section({
   title,

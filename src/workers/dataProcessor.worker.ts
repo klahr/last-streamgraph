@@ -1,18 +1,34 @@
 /// <reference lib="webworker" />
 /**
- * Web Worker that runs the (potentially heavy) scrobble-processing pipeline off
- * the main thread, so toggling config or resizing never blocks rendering.
+ * Web Worker that runs the scrobble-processing pipeline off the main thread.
  *
- * Protocol: post a {@link WorkerRequest}; receive a {@link WorkerResponse} tagged
- * with the same `id` so the client can correlate and drop stale results.
+ * Crucially, the dataset is sent **once** (a `data` message) and cached here,
+ * so config changes (a `process` message) ship only a tiny config object — no
+ * re-cloning the full scrobble array across the thread boundary on every
+ * toggle. Per-resolution {@link Aggregation}s are memoized too, so changing
+ * top-N or mode never re-scans all N scrobbles; only a fresh resolution (or a
+ * new dataset) pays the scan.
  */
-import { processScrobbles } from '../utils/dataProcessor';
-import type { ProcessedData, ProcessRequest } from '../types';
+import {
+  aggregate,
+  buildFromAggregation,
+  type Aggregation,
+  type CountableScrobble,
+} from '../utils/dataProcessor';
+import type { OthersMode, ProcessedData, Resolution } from '../types';
 
-export interface WorkerRequest {
-  id: number;
-  payload: ProcessRequest;
+export interface ProcessConfig {
+  resolution: Resolution;
+  topN: number;
+  othersMode: OthersMode;
+  from?: number;
+  to?: number;
 }
+
+export type WorkerRequest =
+  | { type: 'data'; scrobbles: CountableScrobble[] }
+  | { type: 'process'; id: number; config: ProcessConfig };
+
 export interface WorkerResponse {
   id: number;
   data?: ProcessedData;
@@ -21,17 +37,37 @@ export interface WorkerResponse {
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
+let dataset: CountableScrobble[] = [];
+/** Memoized aggregations by resolution; cleared whenever the dataset changes. */
+const aggCache = new Map<Resolution, Aggregation>();
+
 ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
-  const { id, payload } = e.data;
+  const msg = e.data;
+
+  if (msg.type === 'data') {
+    dataset = msg.scrobbles;
+    aggCache.clear();
+    return;
+  }
+
+  // type === 'process'
+  const { id, config } = msg;
   try {
-    const data = processScrobbles(payload);
-    const res: WorkerResponse = { id, data };
-    ctx.postMessage(res);
+    const { resolution, topN, othersMode, from, to } = config;
+    // The full-resolution aggregation is cached; date range is applied at
+    // bucket level during the (cheap) build, so a dragged range slider reuses
+    // the cache instead of re-scanning all scrobbles.
+    let agg: Aggregation | undefined = aggCache.get(resolution);
+    if (!agg) {
+      agg = aggregate(dataset, resolution);
+      aggCache.set(resolution, agg);
+    }
+    const data = buildFromAggregation(agg, { topN, othersMode, from, to });
+    ctx.postMessage({ id, data } satisfies WorkerResponse);
   } catch (err) {
-    const res: WorkerResponse = {
+    ctx.postMessage({
       id,
       error: err instanceof Error ? err.message : String(err),
-    };
-    ctx.postMessage(res);
+    } satisfies WorkerResponse);
   }
 };
