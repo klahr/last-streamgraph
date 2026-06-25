@@ -1,97 +1,101 @@
 # Last Streamgraph
 
-An interactive, flowing **streamgraph** of your Last.fm listening history, built
-with React + Vite + TypeScript + D3. Scrobbles are fetched incrementally from
-the Last.fm API and cached in IndexedDB, so subsequent loads are instant and
-only new plays are synced.
+**See your music listening as a flowing river of color.**
 
-![Absolute / monthly streamgraph](docs/preview.png)
+Last Streamgraph turns your [Last.fm](https://www.last.fm) scrobbles into living,
+colorful pictures of your taste — how it flows, shifts, and grows over the years.
+Connect your account and watch your listening history come to life.
 
-## Features
+![Your listening as a flowing streamgraph](docs/streamgraph.png)
 
-- **Organic streamgraph** — `d3.stack` with a wiggle offset and `curveBasis`
-  smoothing for rippling, centered waves.
-- **Absolute vs. relative modes** — total thickness encodes scrobble counts, or
-  normalize every interval to fill 100 % height (`stackOffsetExpand`).
-- **Weekly (ISO) or monthly buckets**, all computed in UTC for determinism.
-- **Top-N _per interval_** — an artist becomes a stream if it ranked in the top
-  N of *any* single bucket (the union of per-interval leaders), so one-month
-  wonders aren't hidden by all-time favourites. The rest fold into **Others**
-  or are discarded.
-- **Incremental sync** — the newest cached timestamp is the watermark; only
-  plays after it are fetched. Pages persist as they arrive with a live progress
-  bar.
-- **Off-main-thread processing** — the aggregation pipeline runs in a Web Worker
-  so toggling config or resizing never blocks rendering, even with hundreds of
-  artists over years of history.
-- **Responsive** via `ResizeObserver`, with hover dimming + tooltip and
-  swappable D3 color palettes.
+## What it does
 
-## Getting started
+Everyone's listening has a shape. Some artists carry you for a season and fade;
+some genres swell in winter; some weeks you binge one album into the ground.
+Last Streamgraph finds those patterns in your own history and draws them.
+
+Once you've connected your account, you can explore your music in lots of ways:
+
+### The streamgraph
+
+The main view: a smooth, rippling river where each colored band is an artist (or
+a genre, or an album). The wider the band, the more you listened. You can follow
+a favorite swelling and shrinking across the years, switch between raw play counts
+and percentages, and zoom into any stretch of time.
+
+### When you listen
+
+A heatmap of your week — days down the side, hours across the top. The hotter the
+square, the more you were listening then. It's a surprisingly personal portrait:
+late-night listener? Sunday-afternoon binger? It's all here.
+
+![When you listen, by day and hour](docs/punchcard.png)
+
+### A calendar of every day
+
+Every day you've ever scrobbled, laid out like a calendar and shaded by how much
+you listened — an easy way to spot streaks, quiet spells, and your busiest months.
+
+![A calendar of your listening](docs/calendar.png)
+
+### Your genres at a glance
+
+A colorful sunburst breaking your library into genres, and each genre into its
+top artists — so you can finally see just how much black metal, soundtrack, or pop
+you really listen to.
+
+![Genres and their artists as a sunburst](docs/sunburst.png)
+
+### A peek at the future 🔮
+
+For fun, the forecast view looks at the recent trend of each genre and sketches
+where it *might* be heading over the next few months — rising, falling, or holding
+steady. (It's a playful guess, not a real prediction — your next obsession is
+always a surprise.)
+
+![A playful forecast of your listening](docs/forecast.png)
+
+### …and more
+
+There's also a **seasonal** view (which months of the year you listen most), a
+**discovery** timeline (when you found each artist), a **rank** chart (how your
+top artists rise and fall against each other), and an **affinity network** that
+clusters the artists you tend to play together.
+
+You can recolor everything with a handful of palettes, and your whole history is
+saved in your browser so it loads instantly next time.
+
+## Your data stays yours
+
+Everything happens in your own browser. Your listening history is fetched straight
+from Last.fm and stored locally on your machine — nothing is uploaded anywhere, and
+there's no server in the middle. Your API key never leaves your computer.
+
+## Running it
+
+You'll need [Node.js](https://nodejs.org) (version 20 or newer) installed.
 
 ```bash
 npm install
 npm run dev
 ```
 
-Open the app, then in the left panel enter:
+Then open the address it prints (usually <http://localhost:5173>) in your browser.
 
-1. A **Last.fm API key** — create one at
-   <https://www.last.fm/api/account/create> (only the key is needed; no secret,
-   since `user.getRecentTracks` is unauthenticated).
-2. Your **Last.fm username**.
+In the panel on the left, enter two things:
 
-The first sync fetches your full history (cached locally in your browser);
-later visits only pull new scrobbles. Use **Full** to wipe the cache and
-re-fetch from scratch.
+1. **A Last.fm API key.** Create one for free at
+   <https://www.last.fm/api/account/create> — fill in any name/description; you
+   only need the *API key* it gives you (not the secret).
+2. **Your Last.fm username.**
 
-## Scripts
+The first load fetches your full history (this can take a while if you have a lot
+of scrobbles — it shows progress, and it's safe to close and come back; it picks up
+where it left off). After that, it only grabs new plays, so it's quick.
 
-| Script              | Purpose                                  |
-| ------------------- | ---------------------------------------- |
-| `npm run dev`       | Vite dev server                          |
-| `npm run build`     | Typecheck (`tsc -b`) + production build  |
-| `npm run preview`   | Serve the production build               |
-| `npm test`          | Run the Vitest unit suite                |
-| `npm run typecheck` | Type-only check                          |
+To build a production version: `npm run build`, then `npm run preview`.
 
-## Architecture
+## License
 
-```
-src/
-  services/
-    indexedDb.ts        # idb-backed scrobble store (composite key, [user,uts] index)
-    lastfmApi.ts        # rate-limited, paginated streamScrobbles() generator
-  hooks/
-    useScrobbleData.ts  # hydrate from cache + incremental sync + progress
-    useProcessedData.ts # debounced worker-driven processing
-    useResizeObserver.ts
-    useLocalStorage.ts
-  workers/
-    dataProcessor.worker.ts  # runs the pipeline off the main thread
-    processClient.ts         # promise wrapper; drops stale requests
-  utils/
-    dataProcessor.ts    # pure: bucketing, per-interval top-N union, dense matrix
-    colors.ts           # palette → key→color map
-  components/
-    Streamgraph.tsx     # imperative D3 render (transitions) + React tooltip
-    ControlPanel.tsx    # configuration sidebar
-  App.tsx               # state + layout
-```
-
-### Data flow
-
-```
-Last.fm API ──stream pages──▶ IndexedDB ──hydrate──▶ React state
-                                               │
-                              config ──▶ Web Worker (processScrobbles)
-                                               │
-                                       ProcessedData ──▶ Streamgraph (D3)
-```
-
-## Notes
-
-- The Last.fm client requests `limit=1000` per page (undocumented but accepted),
-  ~5× fewer requests than the documented max of 200, and rate-limits to ~4 req/s.
-- The "now playing" track (no timestamp) is skipped — it isn't a scrobble yet.
-- Everything is client-side; your API key and data never leave the browser.
+Last Streamgraph is free software, licensed under the
+[GNU General Public License v3.0 or later](LICENSE).
