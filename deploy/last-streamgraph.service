@@ -1,0 +1,14 @@
+[Unit]
+Description=Last Streamgraph (static SPA)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/last-streamgraph
+ExecStart=/root/last-streamgraph/node_modules/.bin/serve --single --listen 8080 dist
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
