@@ -5,6 +5,8 @@
  */
 import type {
   Credentials,
+  GenreProgress,
+  GroupBy,
   RangePreset,
   RangeSelection,
   Resolution,
@@ -28,6 +30,9 @@ interface Props {
   onRangeChange: (range: RangeSelection) => void;
   spanMs: { minMs: number; maxMs: number };
   effectiveRange: { from?: number; to?: number };
+  genreProgress: GenreProgress;
+  genreMissing: number;
+  onRefetchGenres: () => void;
 }
 
 const ARTIST_LIMITS = [10, 20, 50, 100];
@@ -53,8 +58,12 @@ export function ControlPanel({
   onRangeChange,
   spanMs,
   effectiveRange,
+  genreProgress,
+  genreMissing,
+  onRefetchGenres,
 }: Props) {
   const syncing = progress.phase === 'syncing';
+  const unit = config.groupBy === 'genre' ? 'genres' : 'artists';
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col gap-6 overflow-y-auto border-r border-slate-800 bg-slate-900 p-5 text-slate-200">
@@ -142,6 +151,25 @@ export function ControlPanel({
           {fmtMonth(effectiveRange.from ?? spanMs.minMs)} —{' '}
           {fmtMonth(effectiveRange.to ?? spanMs.maxMs)}
         </p>
+      </Section>
+
+      {/* Group by: artists vs genres */}
+      <Section title="Group by">
+        <SegmentedControl<GroupBy>
+          value={config.groupBy}
+          onChange={(v) => onConfigChange({ groupBy: v })}
+          options={[
+            { value: 'artist', label: 'Artists' },
+            { value: 'genre', label: 'Genres' },
+          ]}
+        />
+        {config.groupBy === 'genre' && (
+          <GenreStatus
+            progress={genreProgress}
+            missing={genreMissing}
+            onRefetch={onRefetchGenres}
+          />
+        )}
       </Section>
 
       {/* Stream mode */}
@@ -236,7 +264,7 @@ export function ControlPanel({
         <ProgressIndicator progress={progress} />
         <p className="mt-2 text-xs text-slate-500">
           {cachedCount.toLocaleString()} scrobbles cached · {visibleArtists}{' '}
-          artists shown
+          {unit} shown
         </p>
       </Section>
     </aside>
@@ -245,6 +273,49 @@ export function ControlPanel({
 
 const inputCls =
   'w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-sky-500';
+
+/** Genre-enrichment status: progress bar while tagging, summary otherwise. */
+function GenreStatus({
+  progress,
+  missing,
+  onRefetch,
+}: {
+  progress: GenreProgress;
+  missing: number;
+  onRefetch: () => void;
+}) {
+  const pct =
+    progress.total > 0 ? Math.round((progress.done / progress.total) * 100) : 0;
+  return (
+    <div className="mt-1 flex flex-col gap-1.5">
+      {progress.running && (
+        <div className="h-1.5 w-full overflow-hidden rounded bg-slate-800">
+          <div
+            className="h-full bg-sky-500 transition-all duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs text-slate-500">
+          {progress.running
+            ? progress.message
+            : missing > 0
+              ? `${missing.toLocaleString()} artists untagged`
+              : 'All artists tagged.'}
+        </span>
+        {!progress.running && missing > 0 && (
+          <button
+            onClick={onRefetch}
+            className="shrink-0 rounded border border-slate-700 px-2 py-0.5 text-xs text-slate-300 transition hover:border-slate-600"
+          >
+            Fetch
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /** Format epoch ms as "YYYY-MM" (UTC). */
 function fmtMonth(ms: number): string {

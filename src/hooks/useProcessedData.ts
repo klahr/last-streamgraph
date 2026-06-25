@@ -1,16 +1,16 @@
 /**
  * Run the scrobble-processing pipeline in a Web Worker, re-running (debounced)
- * whenever the scrobble set or relevant config changes.
+ * whenever the scrobble set, genre map, or relevant config changes.
  *
- * The dataset is uploaded to the worker only when it actually changes; pure
- * config changes (top-N, resolution, mode) send just a small config object, so
- * toggling never re-clones the full scrobble array across the thread boundary.
- * Stale results are dropped by the worker client, so dragging a slider stays
- * smooth.
+ * The dataset and genre map are uploaded to the worker only when they actually
+ * change; pure config changes (top-N, resolution, mode, group-by, date range)
+ * send just a small config object, so toggling never re-clones the data across
+ * the thread boundary. Stale results are dropped by the worker client.
  */
 import { useEffect, useRef, useState } from 'react';
 import { ProcessClient, StaleRequestError } from '../workers/processClient';
 import type {
+  GroupBy,
   OthersMode,
   ProcessedData,
   Resolution,
@@ -21,6 +21,8 @@ interface Options {
   resolution: Resolution;
   topN: number;
   othersMode: OthersMode;
+  groupBy: GroupBy;
+  genreMap: Record<string, string>;
   from?: number;
   to?: number;
 }
@@ -32,7 +34,8 @@ export function useProcessedData(
   opts: Options,
 ): { data: ProcessedData; processing: boolean } {
   const clientRef = useRef<ProcessClient | null>(null);
-  const sentRef = useRef<Scrobble[] | null>(null);
+  const sentDataRef = useRef<Scrobble[] | null>(null);
+  const sentGenresRef = useRef<Record<string, string> | null>(null);
   const [data, setData] = useState<ProcessedData>(EMPTY);
   const [processing, setProcessing] = useState(false);
 
@@ -43,22 +46,23 @@ export function useProcessedData(
     return () => client?.terminate();
   }, []);
 
-  const { resolution, topN, othersMode, from, to } = opts;
+  const { resolution, topN, othersMode, groupBy, genreMap, from, to } = opts;
 
   useEffect(() => {
     const client = clientRef.current!;
     setProcessing(true);
     const handle = setTimeout(() => {
-      // Only re-upload the dataset when the array reference actually changed —
-      // pure config changes skip the expensive clone entirely.
-      if (sentRef.current !== scrobbles) {
-        client.setData(
-          scrobbles.map((s) => ({ artist: s.artist, uts: s.uts })),
-        );
-        sentRef.current = scrobbles;
+      // Re-upload data / genres only when their reference actually changed.
+      if (sentDataRef.current !== scrobbles) {
+        client.setData(scrobbles.map((s) => ({ artist: s.artist, uts: s.uts })));
+        sentDataRef.current = scrobbles;
+      }
+      if (sentGenresRef.current !== genreMap) {
+        client.setGenres(genreMap);
+        sentGenresRef.current = genreMap;
       }
       client
-        .process({ resolution, topN, othersMode, from, to })
+        .process({ resolution, topN, othersMode, groupBy, from, to })
         .then((result) => {
           setData(result);
           setProcessing(false);
@@ -69,7 +73,7 @@ export function useProcessedData(
         });
     }, 120);
     return () => clearTimeout(handle);
-  }, [scrobbles, resolution, topN, othersMode, from, to]);
+  }, [scrobbles, genreMap, resolution, topN, othersMode, groupBy, from, to]);
 
   return { data, processing };
 }

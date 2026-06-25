@@ -97,10 +97,15 @@ export interface Aggregation {
  * Build an {@link Aggregation} from raw scrobbles. Range filtering is applied
  * later in {@link buildFromAggregation} (at bucket granularity) so the full
  * aggregation can be cached and reused while a date slider is dragged.
+ *
+ * `keyOf` maps a scrobble's artist to the series key it counts toward — the
+ * identity for artist-grouped views, or an artist→genre lookup for genre views.
+ * The rest of the pipeline is agnostic to what the key means.
  */
 export function aggregate(
   scrobbles: readonly CountableScrobble[],
   resolution: Resolution,
+  keyOf?: (artist: string) => string,
 ): Aggregation {
   const bucketMap = new Map<number, Map<string, number>>();
   const artistTotals = new Map<string, number>();
@@ -108,6 +113,7 @@ export function aggregate(
   let maxStart = -Infinity;
 
   for (const s of scrobbles) {
+    const key = keyOf ? keyOf(s.artist) : s.artist;
     const { start } = bucketFor(s.uts, resolution);
     if (start < minStart) minStart = start;
     if (start > maxStart) maxStart = start;
@@ -116,8 +122,8 @@ export function aggregate(
       row = new Map();
       bucketMap.set(start, row);
     }
-    row.set(s.artist, (row.get(s.artist) ?? 0) + 1);
-    artistTotals.set(s.artist, (artistTotals.get(s.artist) ?? 0) + 1);
+    row.set(key, (row.get(key) ?? 0) + 1);
+    artistTotals.set(key, (artistTotals.get(key) ?? 0) + 1);
   }
 
   return { resolution, bucketMap, artistTotals, minStart, maxStart };

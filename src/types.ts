@@ -19,6 +19,16 @@ export type Resolution = 'weekly' | 'monthly' | 'yearly';
 export type StreamMode = 'absolute' | 'relative';
 /** What to do with artists that fall outside the top-N. */
 export type OthersMode = 'group' | 'discard';
+/** Whether streams represent individual artists or their genres. */
+export type GroupBy = 'artist' | 'genre';
+
+/** Genre assigned to an artist (derived from Last.fm top tags), cached in IDB. */
+export interface ArtistGenre {
+  /** Lowercased artist name (primary key). */
+  artist: string;
+  /** Cleaned genre label, or "Unknown" when the artist has no usable tag. */
+  genre: string;
+}
 
 export type PaletteId =
   | 'warm'
@@ -35,6 +45,16 @@ export interface VizConfig {
   topN: number;
   othersMode: OthersMode;
   palette: PaletteId;
+  /** Stream by individual artists or by their genre. */
+  groupBy: GroupBy;
+}
+
+/** Progress of background genre enrichment (fetching artist tags). */
+export interface GenreProgress {
+  running: boolean;
+  done: number;
+  total: number;
+  message: string;
 }
 
 /** Quick date-window presets plus a custom slider-defined window. */

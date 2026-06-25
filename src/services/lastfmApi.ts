@@ -24,10 +24,17 @@ interface RawTrack {
   date?: { uts?: string };
   '@attr'?: { nowplaying?: string };
 }
+interface RawTag {
+  name?: string;
+  count?: number;
+}
 interface RawResponse {
   recenttracks?: {
     track?: RawTrack | RawTrack[];
     '@attr'?: { totalPages?: string; page?: string; total?: string };
+  };
+  toptags?: {
+    tag?: RawTag | RawTag[];
   };
   error?: number;
   message?: string;
@@ -164,4 +171,41 @@ export async function* streamScrobbles(
     page += 1;
     if (page <= totalPages) await sleep(RATE_LIMIT_MS, opts.signal);
   } while (page <= totalPages);
+}
+
+function tagsUrl(creds: Credentials, artist: string): string {
+  const params = new URLSearchParams({
+    method: 'artist.gettoptags',
+    artist,
+    api_key: creds.apiKey,
+    format: 'json',
+    autocorrect: '1',
+  });
+  return `${API_ROOT}?${params.toString()}`;
+}
+
+/**
+ * Fetch an artist's top tags (most-voted first). Returns an empty list for
+ * unknown artists or tagless artists rather than throwing, so enrichment can
+ * keep going. Rate-limit between calls is the caller's responsibility.
+ */
+export async function fetchArtistTopTags(
+  creds: Credentials,
+  artist: string,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  let data: RawResponse;
+  try {
+    data = await fetchPage(tagsUrl(creds, artist), signal);
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    // Unknown artist (error 6) etc. — treat as "no tags", don't abort the run.
+    if (err instanceof LastFmError) return [];
+    throw err;
+  }
+  const raw = data.toptags?.tag;
+  const list: RawTag[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  return list
+    .map((t) => t.name?.trim())
+    .filter((n): n is string => !!n);
 }

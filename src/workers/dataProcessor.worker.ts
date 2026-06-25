@@ -2,12 +2,11 @@
 /**
  * Web Worker that runs the scrobble-processing pipeline off the main thread.
  *
- * Crucially, the dataset is sent **once** (a `data` message) and cached here,
- * so config changes (a `process` message) ship only a tiny config object — no
- * re-cloning the full scrobble array across the thread boundary on every
- * toggle. Per-resolution {@link Aggregation}s are memoized too, so changing
- * top-N or mode never re-scans all N scrobbles; only a fresh resolution (or a
- * new dataset) pays the scan.
+ * The dataset is sent once (`data`), and the artist→genre map separately
+ * (`genres`), so neither is re-cloned on a mere config change (`process`).
+ * Per-(resolution, groupBy) {@link Aggregation}s are memoized — changing top-N,
+ * date range, or mode never re-scans all N scrobbles; only a new resolution,
+ * grouping, dataset, or genre map pays the scan.
  */
 import {
   aggregate,
@@ -15,18 +14,21 @@ import {
   type Aggregation,
   type CountableScrobble,
 } from '../utils/dataProcessor';
-import type { OthersMode, ProcessedData, Resolution } from '../types';
+import { UNKNOWN_GENRE } from '../utils/genres';
+import type { GroupBy, OthersMode, ProcessedData, Resolution } from '../types';
 
 export interface ProcessConfig {
   resolution: Resolution;
   topN: number;
   othersMode: OthersMode;
+  groupBy: GroupBy;
   from?: number;
   to?: number;
 }
 
 export type WorkerRequest =
   | { type: 'data'; scrobbles: CountableScrobble[] }
+  | { type: 'genres'; map: Record<string, string> }
   | { type: 'process'; id: number; config: ProcessConfig };
 
 export interface WorkerResponse {
@@ -38,8 +40,11 @@ export interface WorkerResponse {
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
 let dataset: CountableScrobble[] = [];
-/** Memoized aggregations by resolution; cleared whenever the dataset changes. */
-const aggCache = new Map<Resolution, Aggregation>();
+let genreMap: Record<string, string> = {};
+/** Memoized aggregations keyed by `resolution|groupBy`. */
+const aggCache = new Map<string, Aggregation>();
+
+const genreOf = (artist: string) => genreMap[artist.toLowerCase()] ?? UNKNOWN_GENRE;
 
 ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
   const msg = e.data;
@@ -49,18 +54,22 @@ ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
     aggCache.clear();
     return;
   }
+  if (msg.type === 'genres') {
+    genreMap = msg.map;
+    // Only genre-grouped aggregations depend on the map.
+    for (const k of [...aggCache.keys()]) if (k.endsWith('|genre')) aggCache.delete(k);
+    return;
+  }
 
   // type === 'process'
   const { id, config } = msg;
   try {
-    const { resolution, topN, othersMode, from, to } = config;
-    // The full-resolution aggregation is cached; date range is applied at
-    // bucket level during the (cheap) build, so a dragged range slider reuses
-    // the cache instead of re-scanning all scrobbles.
-    let agg: Aggregation | undefined = aggCache.get(resolution);
+    const { resolution, topN, othersMode, groupBy, from, to } = config;
+    const cacheKey = `${resolution}|${groupBy}`;
+    let agg = aggCache.get(cacheKey);
     if (!agg) {
-      agg = aggregate(dataset, resolution);
-      aggCache.set(resolution, agg);
+      agg = aggregate(dataset, resolution, groupBy === 'genre' ? genreOf : undefined);
+      aggCache.set(cacheKey, agg);
     }
     const data = buildFromAggregation(agg, { topN, othersMode, from, to });
     ctx.postMessage({ id, data } satisfies WorkerResponse);

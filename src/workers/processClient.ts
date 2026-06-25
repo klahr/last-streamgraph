@@ -60,6 +60,11 @@ export class ProcessClient {
     this.worker.postMessage({ type: 'data', scrobbles } satisfies WorkerRequest);
   }
 
+  /** Upload the artist→genre map (clears cached genre-grouped aggregations). */
+  setGenres(map: Record<string, string>): void {
+    this.worker.postMessage({ type: 'genres', map } satisfies WorkerRequest);
+  }
+
   /** Process the already-uploaded dataset with the given config. */
   process(config: ProcessConfig): Promise<ProcessedData> {
     const id = this.nextId++;

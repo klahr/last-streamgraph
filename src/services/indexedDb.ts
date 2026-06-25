@@ -7,12 +7,13 @@
  * history back in time order.
  */
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { Scrobble, SyncState } from '../types';
+import type { ArtistGenre, Scrobble, SyncState } from '../types';
 
 const DB_NAME = 'last-streamgraph';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE = 'scrobbles';
 const SYNC_STORE = 'sync_state';
+const TAGS_STORE = 'artist_tags';
 
 interface StreamgraphDB extends DBSchema {
   scrobbles: {
@@ -26,6 +27,10 @@ interface StreamgraphDB extends DBSchema {
   sync_state: {
     key: string;
     value: SyncState;
+  };
+  artist_tags: {
+    key: string;
+    value: ArtistGenre;
   };
 }
 
@@ -42,6 +47,9 @@ function getDB(): Promise<IDBPDatabase<StreamgraphDB>> {
         }
         if (oldVersion < 2) {
           db.createObjectStore(SYNC_STORE, { keyPath: 'user' });
+        }
+        if (oldVersion < 3) {
+          db.createObjectStore(TAGS_STORE, { keyPath: 'artist' });
         }
       },
     });
@@ -127,4 +135,24 @@ export async function getSyncState(user: string): Promise<SyncState> {
 export async function putSyncState(state: SyncState): Promise<void> {
   const db = await getDB();
   await db.put(SYNC_STORE, state);
+}
+
+/**
+ * All cached artist→genre mappings (artist names are lowercased keys). The
+ * cache is global, not per-user — a band's genre is the same for everyone.
+ */
+export async function getAllArtistGenres(): Promise<Record<string, string>> {
+  const db = await getDB();
+  const all = await db.getAll(TAGS_STORE);
+  const map: Record<string, string> = {};
+  for (const rec of all) map[rec.artist] = rec.genre;
+  return map;
+}
+
+/** Persist a batch of artist→genre records (idempotent on artist). */
+export async function putArtistGenres(records: ArtistGenre[]): Promise<void> {
+  if (records.length === 0) return;
+  const db = await getDB();
+  const tx = db.transaction(TAGS_STORE, 'readwrite');
+  await Promise.all([...records.map((r) => tx.store.put(r)), tx.done]);
 }

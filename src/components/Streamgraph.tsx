@@ -58,7 +58,13 @@ const TRANSITION_MS = 600;
 /** Above this many simultaneous streams, skip the `d` morph (too costly to animate). */
 const ANIMATE_MAX_LAYERS = 80;
 
-export function Streamgraph({ data, size, mode, palette, resolution }: Props) {
+export function Streamgraph({
+  data,
+  size,
+  mode,
+  palette,
+  resolution,
+}: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 

@@ -8,6 +8,7 @@ import { Streamgraph } from './components/Streamgraph';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useScrobbleData } from './hooks/useScrobbleData';
 import { useProcessedData } from './hooks/useProcessedData';
+import { useGenreEnrichment } from './hooks/useGenreEnrichment';
 import { useResizeObserver } from './hooks/useResizeObserver';
 import { buildColorMap } from './utils/colors';
 import type {
@@ -53,6 +54,7 @@ const DEFAULT_CONFIG: VizConfig = {
   topN: 100,
   othersMode: 'group',
   palette: 'viridis',
+  groupBy: 'artist',
 };
 
 const DEFAULT_CREDS: Credentials = { apiKey: '', username: '' };
@@ -62,9 +64,15 @@ export default function App() {
     'lsg.creds',
     DEFAULT_CREDS,
   );
-  const [config, setConfig] = useLocalStorage<VizConfig>(
+  const [storedConfig, setConfig] = useLocalStorage<VizConfig>(
     'lsg.config',
     DEFAULT_CONFIG,
+  );
+  // Merge with defaults so a config persisted before a field existed still
+  // gets a sensible value for any newly-added field.
+  const config = useMemo(
+    () => ({ ...DEFAULT_CONFIG, ...storedConfig }),
+    [storedConfig],
   );
   const [range, setRange] = useLocalStorage<RangeSelection>(
     'lsg.range',
@@ -91,10 +99,19 @@ export default function App() {
 
   const { from, to } = resolveRange(range, span.minMs, span.maxMs);
 
+  // Genre enrichment (fetch artist tags) is active only in genre-grouped mode.
+  const genre = useGenreEnrichment(
+    hasCreds ? creds : null,
+    scrobbles,
+    config.groupBy === 'genre',
+  );
+
   const { data, processing } = useProcessedData(scrobbles, {
     resolution: config.resolution,
     topN: config.topN,
     othersMode: config.othersMode,
+    groupBy: config.groupBy,
+    genreMap: genre.genreMap,
     from,
     to,
   });
@@ -106,7 +123,7 @@ export default function App() {
   );
 
   const patchConfig = (patch: Partial<VizConfig>) =>
-    setConfig((prev) => ({ ...prev, ...patch }));
+    setConfig((prev) => ({ ...DEFAULT_CONFIG, ...prev, ...patch }));
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -124,6 +141,9 @@ export default function App() {
         onRangeChange={setRange}
         spanMs={span}
         effectiveRange={{ from, to }}
+        genreProgress={genre.progress}
+        genreMissing={genre.missingCount}
+        onRefetchGenres={genre.enrich}
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
