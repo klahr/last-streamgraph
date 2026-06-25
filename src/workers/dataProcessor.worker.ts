@@ -44,7 +44,15 @@ let genreMap: Record<string, string> = {};
 /** Memoized aggregations keyed by `resolution|groupBy`. */
 const aggCache = new Map<string, Aggregation>();
 
-const genreOf = (artist: string) => genreMap[artist.toLowerCase()] ?? UNKNOWN_GENRE;
+const genreOf = (s: CountableScrobble) =>
+  genreMap[s.artist.toLowerCase()] ?? UNKNOWN_GENRE;
+const albumOf = (s: CountableScrobble) => s.album || 'Unknown Album';
+
+function keyFnFor(groupBy: GroupBy) {
+  if (groupBy === 'genre') return genreOf;
+  if (groupBy === 'album') return albumOf;
+  return undefined; // artist (default identity)
+}
 
 ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
   const msg = e.data;
@@ -68,7 +76,7 @@ ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
     const cacheKey = `${resolution}|${groupBy}`;
     let agg = aggCache.get(cacheKey);
     if (!agg) {
-      agg = aggregate(dataset, resolution, groupBy === 'genre' ? genreOf : undefined);
+      agg = aggregate(dataset, resolution, keyFnFor(groupBy));
       aggCache.set(cacheKey, agg);
     }
     const data = buildFromAggregation(agg, { topN, othersMode, from, to });

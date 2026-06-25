@@ -19,8 +19,20 @@ export type Resolution = 'weekly' | 'monthly' | 'yearly';
 export type StreamMode = 'absolute' | 'relative';
 /** What to do with artists that fall outside the top-N. */
 export type OthersMode = 'group' | 'discard';
-/** Whether streams represent individual artists or their genres. */
-export type GroupBy = 'artist' | 'genre';
+/** Whether streams represent individual artists, their genres, or albums. */
+export type GroupBy = 'artist' | 'genre' | 'album';
+
+/** Which visualization is shown. */
+export type View =
+  | 'streamgraph'
+  | 'punchcard'
+  | 'calendar'
+  | 'seasonal'
+  | 'discovery'
+  | 'rankbump'
+  | 'sunburst'
+  | 'network'
+  | 'forecast';
 
 /** Genre assigned to an artist (derived from Last.fm top tags), cached in IDB. */
 export interface ArtistGenre {

@@ -11,12 +11,34 @@ import { useProcessedData } from './hooks/useProcessedData';
 import { useGenreEnrichment } from './hooks/useGenreEnrichment';
 import { useResizeObserver } from './hooks/useResizeObserver';
 import { buildColorMap } from './utils/colors';
+import { Punchcard } from './components/views/Punchcard';
+import { CalendarHeatmap } from './components/views/CalendarHeatmap';
+import { SeasonalRadial } from './components/views/SeasonalRadial';
+import { DiscoveryTimeline } from './components/views/DiscoveryTimeline';
+import { RankBump } from './components/views/RankBump';
+import { GenreSunburst } from './components/views/GenreSunburst';
+import { ArtistNetwork } from './components/views/ArtistNetwork';
+import { Forecast } from './components/views/Forecast';
+import type { ViewProps } from './components/views/viewProps';
 import type {
   Credentials,
   RangeSelection,
   Resolution,
+  View,
   VizConfig,
 } from './types';
+
+const VIEWS: { id: View; label: string }[] = [
+  { id: 'streamgraph', label: 'Streamgraph' },
+  { id: 'forecast', label: '🔮 Forecast' },
+  { id: 'punchcard', label: 'Punchcard' },
+  { id: 'calendar', label: 'Calendar' },
+  { id: 'seasonal', label: 'Seasonal' },
+  { id: 'discovery', label: 'Discovery' },
+  { id: 'rankbump', label: 'Rank' },
+  { id: 'sunburst', label: 'Genres' },
+  { id: 'network', label: 'Network' },
+];
 
 const BUCKET_NOUN: Record<Resolution, string> = {
   weekly: 'weeks',
@@ -78,6 +100,7 @@ export default function App() {
     'lsg.range',
     DEFAULT_RANGE,
   );
+  const [view, setView] = useLocalStorage<View>('lsg.view', 'streamgraph');
 
   const hasCreds = !!creds.apiKey.trim() && !!creds.username.trim();
   const { scrobbles, progress, sync, fullResync } = useScrobbleData(
@@ -99,12 +122,11 @@ export default function App() {
 
   const { from, to } = resolveRange(range, span.minMs, span.maxMs);
 
-  // Genre enrichment (fetch artist tags) is active only in genre-grouped mode.
-  const genre = useGenreEnrichment(
-    hasCreds ? creds : null,
-    scrobbles,
-    config.groupBy === 'genre',
-  );
+  // Genre enrichment runs when genres are needed: genre grouping, the sunburst,
+  // or the forecast (which forecasts by genre when available).
+  const needGenres =
+    config.groupBy === 'genre' || view === 'sunburst' || view === 'forecast';
+  const genre = useGenreEnrichment(hasCreds ? creds : null, scrobbles, needGenres);
 
   const { data, processing } = useProcessedData(scrobbles, {
     resolution: config.resolution,
@@ -121,6 +143,60 @@ export default function App() {
     () => buildColorMap(data.keys, config.palette),
     [data.keys, config.palette],
   );
+
+  // Auxiliary views aggregate raw scrobbles themselves; apply the date window
+  // (scrobble-level) so they stay consistent with the streamgraph's range.
+  const rangedScrobbles = useMemo(() => {
+    if (from == null && to == null) return scrobbles;
+    const lo = from ?? -Infinity;
+    const hi = to ?? Infinity;
+    return scrobbles.filter((s) => {
+      const ms = s.uts * 1000;
+      return ms >= lo && ms <= hi;
+    });
+  }, [scrobbles, from, to]);
+
+  const viewProps: ViewProps = {
+    scrobbles: rangedScrobbles,
+    size,
+    palette: config.palette,
+    genreMap: genre.genreMap,
+    resolution: config.resolution,
+    topN: config.topN,
+  };
+
+  const renderView = () => {
+    switch (view) {
+      case 'streamgraph':
+        return (
+          <Streamgraph
+            data={data}
+            size={size}
+            mode={config.mode}
+            palette={config.palette}
+            resolution={config.resolution}
+          />
+        );
+      case 'punchcard':
+        return <Punchcard {...viewProps} />;
+      case 'calendar':
+        return <CalendarHeatmap {...viewProps} />;
+      case 'seasonal':
+        return <SeasonalRadial {...viewProps} />;
+      case 'discovery':
+        return <DiscoveryTimeline {...viewProps} />;
+      case 'rankbump':
+        return <RankBump {...viewProps} />;
+      case 'sunburst':
+        return <GenreSunburst {...viewProps} />;
+      case 'network':
+        return <ArtistNetwork {...viewProps} />;
+      case 'forecast':
+        return <Forecast {...viewProps} />;
+      default:
+        return null;
+    }
+  };
 
   const patchConfig = (patch: Partial<VizConfig>) =>
     setConfig((prev) => ({ ...DEFAULT_CONFIG, ...prev, ...patch }));
@@ -147,35 +223,40 @@ export default function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-slate-800 px-6 py-3">
-          <div>
-            <h2 className="text-sm font-medium text-slate-300">
-              {config.mode === 'absolute' ? 'Absolute plays' : 'Relative share'}{' '}
-              · {config.resolution}
-            </h2>
+        {/* View tabs */}
+        <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
+          {VIEWS.map((v) => (
+            <button
+              key={v.id}
+              onClick={() => setView(v.id)}
+              className={`shrink-0 rounded px-3 py-1.5 text-sm transition ${
+                view === v.id
+                  ? 'bg-sky-600 text-white'
+                  : 'text-slate-400 hover:bg-slate-800'
+              }`}
+            >
+              {v.label}
+            </button>
+          ))}
+        </div>
+
+        {view === 'streamgraph' && (
+          <div className="border-b border-slate-800 px-6 py-2">
             <p className="text-xs text-slate-500">
-              {data.grandTotal.toLocaleString()} plays across{' '}
-              {data.matrix.length} {BUCKET_NOUN[config.resolution]}
+              {config.mode === 'absolute' ? 'Absolute plays' : 'Relative share'} ·{' '}
+              {config.resolution} · by {config.groupBy} ·{' '}
+              {data.grandTotal.toLocaleString()} plays across {data.matrix.length}{' '}
+              {BUCKET_NOUN[config.resolution]}
               {processing ? ' · updating…' : ''}
             </p>
           </div>
-        </div>
+        )}
 
         <div ref={chartRef} className="relative min-h-0 flex-1">
-          {!hasCreds ? (
-            <EmptyState />
-          ) : (
-            <Streamgraph
-              data={data}
-              size={size}
-              mode={config.mode}
-              palette={config.palette}
-              resolution={config.resolution}
-            />
-          )}
+          {!hasCreds ? <EmptyState /> : renderView()}
         </div>
 
-        {data.keys.length > 0 && (
+        {view === 'streamgraph' && data.keys.length > 0 && (
           <Legend keys={data.keys} colorMap={colorMap} totals={data.totals} />
         )}
       </main>

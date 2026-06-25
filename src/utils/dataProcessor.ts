@@ -77,6 +77,8 @@ function labelForStart(start: number, resolution: Resolution): string {
 export interface CountableScrobble {
   artist: string;
   uts: number;
+  /** Present when album grouping is needed. */
+  album?: string;
 }
 
 /**
@@ -98,14 +100,14 @@ export interface Aggregation {
  * later in {@link buildFromAggregation} (at bucket granularity) so the full
  * aggregation can be cached and reused while a date slider is dragged.
  *
- * `keyOf` maps a scrobble's artist to the series key it counts toward — the
- * identity for artist-grouped views, or an artist→genre lookup for genre views.
+ * `keyOf` maps a scrobble to the series key it counts toward — the artist for
+ * artist-grouped views, an artist→genre lookup for genre views, or the album.
  * The rest of the pipeline is agnostic to what the key means.
  */
 export function aggregate(
   scrobbles: readonly CountableScrobble[],
   resolution: Resolution,
-  keyOf?: (artist: string) => string,
+  keyOf?: (s: CountableScrobble) => string,
 ): Aggregation {
   const bucketMap = new Map<number, Map<string, number>>();
   const artistTotals = new Map<string, number>();
@@ -113,7 +115,7 @@ export function aggregate(
   let maxStart = -Infinity;
 
   for (const s of scrobbles) {
-    const key = keyOf ? keyOf(s.artist) : s.artist;
+    const key = keyOf ? keyOf(s) : s.artist;
     const { start } = bucketFor(s.uts, resolution);
     if (start < minStart) minStart = start;
     if (start > maxStart) maxStart = start;

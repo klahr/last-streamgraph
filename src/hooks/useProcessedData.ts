@@ -54,7 +54,9 @@ export function useProcessedData(
     const handle = setTimeout(() => {
       // Re-upload data / genres only when their reference actually changed.
       if (sentDataRef.current !== scrobbles) {
-        client.setData(scrobbles.map((s) => ({ artist: s.artist, uts: s.uts })));
+        client.setData(
+          scrobbles.map((s) => ({ artist: s.artist, uts: s.uts, album: s.album })),
+        );
         sentDataRef.current = scrobbles;
       }
       if (sentGenresRef.current !== genreMap) {

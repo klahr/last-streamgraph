@@ -22,6 +22,11 @@ const INTERPOLATORS: Record<PaletteId, (t: number) => string> = {
   spectral: interpolateSpectral,
 };
 
+/** The raw [0,1]→color interpolator for a palette (for heatmaps, scales). */
+export function interpolatorFor(palette: PaletteId): (t: number) => string {
+  return INTERPOLATORS[palette] ?? interpolateWarm;
+}
+
 export const PALETTES: { id: PaletteId; label: string }[] = [
   { id: 'warm', label: 'Warm' },
   { id: 'cool', label: 'Cool' },

@@ -63,7 +63,12 @@ export function ControlPanel({
   onRefetchGenres,
 }: Props) {
   const syncing = progress.phase === 'syncing';
-  const unit = config.groupBy === 'genre' ? 'genres' : 'artists';
+  const unit =
+    config.groupBy === 'genre'
+      ? 'genres'
+      : config.groupBy === 'album'
+        ? 'albums'
+        : 'artists';
 
   return (
     <aside className="flex h-full w-80 shrink-0 flex-col gap-6 overflow-y-auto border-r border-slate-800 bg-slate-900 p-5 text-slate-200">
@@ -161,6 +166,7 @@ export function ControlPanel({
           options={[
             { value: 'artist', label: 'Artists' },
             { value: 'genre', label: 'Genres' },
+            { value: 'album', label: 'Albums' },
           ]}
         />
         {config.groupBy === 'genre' && (
