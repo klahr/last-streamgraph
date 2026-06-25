@@ -6,6 +6,13 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/last-streamgraph
+# Optional: provide a read-only Last.fm API key so visitors don't need their own.
+# Put `LASTFM_API_KEY=...` in this file (it's fine if the file is absent — the
+# leading `-` makes it optional, and an unset key falls back to "bring your own").
+EnvironmentFile=-/etc/last-streamgraph.env
+# Bake the key into dist/config.js before each start, so rotating the key is just
+# editing the env file and restarting — no rebuild needed.
+ExecStartPre=/root/last-streamgraph/deploy/gen-config.sh /root/last-streamgraph/dist
 ExecStart=/root/last-streamgraph/node_modules/.bin/serve --single --listen 8080 dist
 Restart=on-failure
 RestartSec=5

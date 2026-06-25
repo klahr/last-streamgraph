@@ -93,7 +93,39 @@ The first load fetches your full history (this can take a while if you have a lo
 of scrobbles — it shows progress, and it's safe to close and come back; it picks up
 where it left off). After that, it only grabs new plays, so it's quick.
 
+### Sharing a link
+
+The username lives in the URL path, so `https://your-host/klarre908` opens
+straight onto that person's history. Use the **Copy share link** button next to
+the username field to grab a link to send — or just copy the address bar, which
+always reflects the current username.
+
+The API key is *never* part of the link (it's a per-viewer secret). Whoever opens
+a shared link still needs their own API key entered once; from then on, any link
+just swaps which username is shown.
+
 To build a production version: `npm run build`, then `npm run preview`.
+
+## Hosting it for others
+
+If you run a public instance, you can bake in a Last.fm API key so visitors only
+need to type a username (or open a shared `/username` link) — they don't need a
+key of their own.
+
+The included systemd unit (`deploy/last-streamgraph.service`) reads the key from
+an optional environment file and writes it into `dist/config.js` on each start:
+
+```bash
+echo 'LASTFM_API_KEY=your-read-only-key' | sudo tee /etc/last-streamgraph.env
+sudo systemctl restart last-streamgraph
+```
+
+Rotating the key is just editing that file and restarting — no rebuild needed.
+If no key is set, the app falls back to asking each visitor for their own.
+
+> **Heads-up:** a key served to the browser is *publicly readable* — anyone can
+> read it from the network tab and use it against your rate limit. Only ever use
+> a read-only API key here, never the shared secret.
 
 ## License
 

@@ -14,11 +14,15 @@ import type {
   SyncProgress,
   VizConfig,
 } from '../types';
+import { useState } from 'react';
 import { PALETTES } from '../utils/colors';
+import { shareLink } from '../utils/shareUrl';
 
 interface Props {
   creds: Credentials;
   onCredsChange: (creds: Credentials) => void;
+  /** Host baked in the API key (config.js); hide the key field when true. */
+  hostManagedKey: boolean;
   config: VizConfig;
   onConfigChange: (patch: Partial<VizConfig>) => void;
   progress: SyncProgress;
@@ -47,6 +51,7 @@ const RANGE_PRESETS: { id: RangePreset; label: string }[] = [
 export function ControlPanel({
   creds,
   onCredsChange,
+  hostManagedKey,
   config,
   onConfigChange,
   progress,
@@ -81,16 +86,20 @@ export function ControlPanel({
 
       {/* Credentials */}
       <Section title="Last.fm">
-        <Field label="API Key">
-          <input
-            type="password"
-            autoComplete="off"
-            value={creds.apiKey}
-            onChange={(e) => onCredsChange({ ...creds, apiKey: e.target.value })}
-            placeholder="32-char API key"
-            className={inputCls}
-          />
-        </Field>
+        {!hostManagedKey && (
+          <Field label="API Key">
+            <input
+              type="password"
+              autoComplete="off"
+              value={creds.apiKey}
+              onChange={(e) =>
+                onCredsChange({ ...creds, apiKey: e.target.value })
+              }
+              placeholder="32-char API key"
+              className={inputCls}
+            />
+          </Field>
+        )}
         <Field label="Username">
           <input
             type="text"
@@ -103,14 +112,23 @@ export function ControlPanel({
             className={inputCls}
           />
         </Field>
-        <a
-          href="https://www.last.fm/api/account/create"
-          target="_blank"
-          rel="noreferrer"
-          className="text-xs text-sky-400 hover:underline"
-        >
-          Get an API key →
-        </a>
+        <div className="flex items-center justify-between gap-2">
+          {hostManagedKey ? (
+            <span className="text-xs text-slate-500">
+              API key provided by host
+            </span>
+          ) : (
+            <a
+              href="https://www.last.fm/api/account/create"
+              target="_blank"
+              rel="noreferrer"
+              className="text-xs text-sky-400 hover:underline"
+            >
+              Get an API key →
+            </a>
+          )}
+          {creds.username.trim() && <ShareLinkButton username={creds.username} />}
+        </div>
       </Section>
 
       {/* Time resolution */}
@@ -279,6 +297,30 @@ export function ControlPanel({
 
 const inputCls =
   'w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-sky-500';
+
+/** Copies a shareable link (origin + username) to the clipboard. */
+function ShareLinkButton({ username }: { username: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(shareLink(username));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard blocked (e.g. insecure context); ignore — the URL bar still
+      // holds the same shareable link.
+    }
+  };
+  return (
+    <button
+      onClick={copy}
+      title="Copy a link that opens this username"
+      className="shrink-0 text-xs text-sky-400 hover:underline"
+    >
+      {copied ? 'Copied!' : 'Copy share link'}
+    </button>
+  );
+}
 
 /** Genre-enrichment status: progress bar while tagging, summary otherwise. */
 function GenreStatus({
