@@ -19,6 +19,10 @@ import { PALETTES } from '../utils/colors';
 import { shareLink } from '../utils/shareUrl';
 
 interface Props {
+  /** Drawer open state (small screens only; always visible on large). */
+  open: boolean;
+  /** Close the drawer (small screens). */
+  onClose: () => void;
   creds: Credentials;
   onCredsChange: (creds: Credentials) => void;
   /** Host baked in the API key (config.js); hide the key field when true. */
@@ -49,6 +53,8 @@ const RANGE_PRESETS: { id: RangePreset; label: string }[] = [
 ];
 
 export function ControlPanel({
+  open,
+  onClose,
   creds,
   onCredsChange,
   hostManagedKey,
@@ -76,12 +82,38 @@ export function ControlPanel({
         : 'artists';
 
   return (
-    <aside className="flex h-full w-80 shrink-0 flex-col gap-6 overflow-y-auto border-r border-slate-800 bg-slate-900 p-5 text-slate-200">
-      <header>
-        <h1 className="text-lg font-semibold text-slate-100">Last Streamgraph</h1>
-        <p className="text-xs text-slate-500">
-          Your Last.fm history as a flowing stream.
-        </p>
+    <aside
+      className={`fixed inset-y-0 left-0 z-40 flex h-full w-80 max-w-[85vw] shrink-0 transform flex-col gap-6 overflow-y-auto border-r border-slate-800 bg-slate-900 p-5 text-slate-200 transition-transform duration-300 ease-in-out lg:static lg:max-w-none lg:translate-x-0 lg:transition-none ${
+        open ? 'translate-x-0' : '-translate-x-full'
+      }`}
+    >
+      <header className="flex items-start justify-between gap-2">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-100">
+            Last Streamgraph
+          </h1>
+          <p className="text-xs text-slate-500">
+            Your Last.fm history as a flowing stream.
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close settings"
+          className="-mr-1 shrink-0 rounded p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 lg:hidden"
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <line x1="6" y1="6" x2="18" y2="18" />
+            <line x1="18" y1="6" x2="6" y2="18" />
+          </svg>
+        </button>
       </header>
 
       {/* Credentials */}

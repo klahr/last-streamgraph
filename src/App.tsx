@@ -2,7 +2,7 @@
  * App shell: owns persisted credentials + viz config, wires the data hooks to
  * the control panel and the streamgraph, and lays out the responsive chart area.
  */
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { Streamgraph } from './components/Streamgraph';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -103,6 +103,10 @@ export default function App() {
     DEFAULT_RANGE,
   );
   const [view, setView] = useLocalStorage<View>('lsg.view', 'streamgraph');
+
+  // On small screens the settings panel becomes a slide-in drawer toggled by
+  // the hamburger; on large screens it's always-visible and this is ignored.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Shareable links carry the username in the URL path (e.g. /klarre908). On
   // first load that wins over the stored username; the API key is never in the
@@ -240,7 +244,18 @@ export default function App() {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
+      {/* Backdrop behind the mobile drawer; absent on large screens. */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50 lg:hidden"
+          aria-hidden="true"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       <ControlPanel
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
         creds={creds}
         onCredsChange={setCreds}
         hostManagedKey={!!hostKey}
@@ -261,21 +276,42 @@ export default function App() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col">
-        {/* View tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto border-b border-slate-800 px-3 py-2">
-          {VIEWS.map((v) => (
-            <button
-              key={v.id}
-              onClick={() => setView(v.id)}
-              className={`shrink-0 rounded px-3 py-1.5 text-sm transition ${
-                view === v.id
-                  ? 'bg-sky-600 text-white'
-                  : 'text-slate-400 hover:bg-slate-800'
-              }`}
+        {/* View tabs (with the hamburger that opens the settings drawer) */}
+        <div className="flex items-center gap-1 border-b border-slate-800 px-3 py-2">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open settings"
+            className="mr-1 shrink-0 rounded p-1.5 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200 lg:hidden"
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
             >
-              {v.label}
-            </button>
-          ))}
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {VIEWS.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => setView(v.id)}
+                className={`shrink-0 rounded px-3 py-1.5 text-sm transition ${
+                  view === v.id
+                    ? 'bg-sky-600 text-white'
+                    : 'text-slate-400 hover:bg-slate-800'
+                }`}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {view === 'streamgraph' && (
