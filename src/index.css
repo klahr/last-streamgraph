@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+  background: #020617;
+}
+
+/* D3 axis styling: subtle ticks that fit the dark theme. */
+.sg-x-axis path,
+.sg-y-axis path,
+.sg-x-axis line,
+.sg-y-axis line {
+  stroke: #334155;
+}
+
+.sg-x-axis text,
+.sg-y-axis text {
+  fill: #94a3b8;
+  font-size: 11px;
+}
