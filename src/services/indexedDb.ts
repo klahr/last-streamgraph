@@ -38,7 +38,7 @@ let dbPromise: Promise<IDBPDatabase<StreamgraphDB>> | null = null;
 
 function getDB(): Promise<IDBPDatabase<StreamgraphDB>> {
   if (!dbPromise) {
-    dbPromise = openDB<StreamgraphDB>(DB_NAME, DB_VERSION, {
+    const p = openDB<StreamgraphDB>(DB_NAME, DB_VERSION, {
       upgrade(db, oldVersion) {
         if (oldVersion < 1) {
           const store = db.createObjectStore(STORE, { keyPath: 'id' });
@@ -53,6 +53,13 @@ function getDB(): Promise<IDBPDatabase<StreamgraphDB>> {
         }
       },
     });
+    // Don't cache a rejection: a failed open (quota, blocked upgrade, corrupt
+    // DB) would otherwise poison every subsequent getDB() for the page's life.
+    // Dropping the cached promise lets the next call retry the open.
+    p.catch(() => {
+      if (dbPromise === p) dbPromise = null;
+    });
+    dbPromise = p;
   }
   return dbPromise;
 }

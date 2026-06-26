@@ -29,6 +29,13 @@ interface Options {
 
 const EMPTY: ProcessedData = { keys: [], matrix: [], totals: {}, grandTotal: 0 };
 
+/** Min gap between two full-dataset uploads to the worker. The scrobble array
+ * gets a new reference on each sync flush, so without throttling a 200-page
+ * sync re-clones the whole set ~20 times. Config-only changes are unaffected
+ * (they never upload). The throttled upload still gives the chart a chance to
+ * fill in during a long initial sync, just on a coarser cadence. */
+const UPLOAD_MIN_MS = 3000;
+
 export function useProcessedData(
   scrobbles: Scrobble[],
   opts: Options,
@@ -36,6 +43,7 @@ export function useProcessedData(
   const clientRef = useRef<ProcessClient | null>(null);
   const sentDataRef = useRef<Scrobble[] | null>(null);
   const sentGenresRef = useRef<Record<string, string> | null>(null);
+  const lastUploadAtRef = useRef(0);
   const [data, setData] = useState<ProcessedData>(EMPTY);
   const [processing, setProcessing] = useState(false);
 
@@ -64,12 +72,19 @@ export function useProcessedData(
     if (!client) return;
     setProcessing(true);
     const handle = setTimeout(() => {
-      // Re-upload data / genres only when their reference actually changed.
-      if (sentDataRef.current !== scrobbles) {
+      // Re-upload data only when its reference changed AND enough time has
+      // passed since the last upload — sync flushes produce a new array every
+      // few seconds, each potentially huge; throttling bounds the clone cost.
+      const now = Date.now();
+      if (
+        sentDataRef.current !== scrobbles &&
+        now - lastUploadAtRef.current >= UPLOAD_MIN_MS
+      ) {
         client.setData(
           scrobbles.map((s) => ({ artist: s.artist, uts: s.uts, album: s.album })),
         );
         sentDataRef.current = scrobbles;
+        lastUploadAtRef.current = now;
       }
       if (sentGenresRef.current !== genreMap) {
         client.setGenres(genreMap);

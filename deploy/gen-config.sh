@@ -9,4 +9,9 @@ set -eu
 dist="${1:-dist}"
 key="${LASTFM_API_KEY:-}"
 
-printf 'window.__LSG_CONFIG__ = { apiKey: "%s" };\n' "$key" > "$dist/config.js"
+# Escape backslashes first, then double quotes, so an arbitrary key can't break
+# out of the JS double-quoted string literal in config.js. (A Last.fm key is
+# normally 32 hex chars, but don't assume that.)
+esc="$(printf '%s' "$key" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+
+printf 'window.__LSG_CONFIG__ = { apiKey: "%s" };\n' "$esc" > "$dist/config.js"

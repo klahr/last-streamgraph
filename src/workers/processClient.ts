@@ -53,6 +53,14 @@ export class ProcessClient {
       if (error) entry.reject(new Error(error));
       else if (data) entry.resolve(data);
     };
+    this.worker.onerror = (e: ErrorEvent) => {
+      // A worker load failure or uncaught throw leaves message-less: every
+      // pending request's promise would hang (and `processing` spin forever).
+      // Reject them all so callers fall back to the stale/error path.
+      const err = new Error(e.message || 'data worker error');
+      for (const [, entry] of this.pending) entry.reject(err);
+      this.pending.clear();
+    };
   }
 
   /** Upload the dataset to the worker (clears its per-resolution cache). */
