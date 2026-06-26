@@ -172,7 +172,7 @@ export default function App() {
 
   const hasCreds =
     !!effectiveCreds.apiKey.trim() && !!effectiveCreds.username.trim();
-  const { scrobbles, progress, sync, fullResync } = useScrobbleData(
+  const { scrobbles, progress, sync } = useScrobbleData(
     hasCreds ? effectiveCreds : null,
   );
 
@@ -343,7 +343,6 @@ export default function App() {
         cachedCount={scrobbles.length}
         visibleArtists={data.keys.length}
         onSync={sync}
-        onFullResync={fullResync}
         range={range}
         onRangeChange={setRange}
         spanMs={span}

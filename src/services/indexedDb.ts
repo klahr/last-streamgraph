@@ -97,19 +97,6 @@ export async function getAllScrobbles(user: string): Promise<Scrobble[]> {
   return db.getAllFromIndex(STORE, 'by_user_uts', range);
 }
 
-/** Wipe a single user's cached history + sync state (forces a full re-sync). */
-export async function clearUser(user: string): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction(STORE, 'readwrite');
-  let cursor = await tx.store.index('by_user').openCursor(user);
-  while (cursor) {
-    await cursor.delete();
-    cursor = await cursor.continue();
-  }
-  await tx.done;
-  await db.delete(SYNC_STORE, user);
-}
-
 /** Read a user's persisted sync watermarks (defaults if none stored yet). */
 export async function getSyncState(user: string): Promise<SyncState> {
   const db = await getDB();

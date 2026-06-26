@@ -6,7 +6,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  clearUser,
   getAllScrobbles,
   getSyncState,
   putScrobbles,
@@ -31,8 +30,6 @@ export interface ScrobbleData {
   progress: SyncProgress;
   /** Incremental sync: fetch only plays newer than the cache watermark. */
   sync: () => void;
-  /** Drop the cache for this user and re-fetch the entire history. */
-  fullResync: () => void;
 }
 
 export function useScrobbleData(creds: Credentials | null): ScrobbleData {
@@ -44,7 +41,7 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
   const user = valid ? creds!.username.trim().toLowerCase() : '';
 
   const runSync = useCallback(
-    async (full: boolean) => {
+    async () => {
       if (!valid || !creds) return;
       abortRef.current?.abort();
       const ac = new AbortController();
@@ -60,10 +57,6 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
           fetched: 0,
           message: 'Loading…',
         });
-        if (full) {
-          await clearUser(user); // also resets sync watermarks
-          setScrobbles([]);
-        }
 
         // Hydrate from cache first so the chart paints immediately (and so a
         // resumed sync already shows whatever was fetched before the abort).
@@ -210,13 +203,12 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
     // in state until B's cache hydrates; clear immediately so B never briefly
     // renders A's chart.
     setScrobbles([]);
-    void runSync(false);
+    void runSync();
     return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, valid]);
 
-  const sync = useCallback(() => void runSync(false), [runSync]);
-  const fullResync = useCallback(() => void runSync(true), [runSync]);
+  const sync = useCallback(() => void runSync(), [runSync]);
 
-  return { scrobbles, progress, sync, fullResync };
+  return { scrobbles, progress, sync };
 }

@@ -38,7 +38,6 @@ interface Props {
   cachedCount: number;
   visibleArtists: number;
   onSync: () => void;
-  onFullResync: () => void;
   range: RangeSelection;
   onRangeChange: (range: RangeSelection) => void;
   spanMs: { minMs: number; maxMs: number };
@@ -72,7 +71,6 @@ export function ControlPanel({
   cachedCount,
   visibleArtists,
   onSync,
-  onFullResync,
   range,
   onRangeChange,
   spanMs,
@@ -384,23 +382,13 @@ export function ControlPanel({
 
       {/* Sync */}
       <Section title="Sync">
-        <div className="flex gap-2">
-          <button
-            onClick={onSync}
-            disabled={syncing}
-            className="flex-1 rounded bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:opacity-50"
-          >
-            {syncing ? 'Syncing…' : 'Sync new'}
-          </button>
-          <button
-            onClick={onFullResync}
-            disabled={syncing}
-            className="rounded border border-slate-700 px-3 py-2 text-sm text-slate-300 transition hover:border-slate-600 disabled:opacity-50"
-            title="Clear cache and re-fetch everything"
-          >
-            Full
-          </button>
-        </div>
+        <button
+          onClick={onSync}
+          disabled={syncing}
+          className="w-full rounded bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:opacity-50"
+        >
+          {syncing ? 'Syncing…' : 'Sync new'}
+        </button>
         <ProgressIndicator progress={progress} />
         <p className="mt-2 text-xs text-slate-500">
           {cachedCount.toLocaleString()} scrobbles cached · {visibleArtists}{' '}
