@@ -147,7 +147,13 @@ export function useGenreEnrichment(
       setProgress({ running: false, done, total: done, message: done > 0 ? `Tagged ${done} artist${done === 1 ? '' : 's'}.` : 'Genres up to date.' });
     } catch (err) {
       await flush(); // keep what we fetched before the abort/error
-      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // An abort (active toggled off / creds change) must not leave
+        // `progress.running` stuck on — that would pin the busy indicator.
+        // Preserve the done count so a resumed run reports honestly.
+        setProgress({ running: false, done, total: done, message: 'Tagging stopped.' });
+        return;
+      }
       setProgress({ running: false, done, total: done, message: err instanceof Error ? err.message : 'Genre fetch failed.' });
     } finally {
       runningRef.current = false;

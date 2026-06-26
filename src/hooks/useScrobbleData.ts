@@ -152,7 +152,14 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
               : 'Up to date.',
         });
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          // An abort (credential change / unmount) must not leave the progress
+          // stuck on 'syncing' — that would pin the busy indicator on after
+          // work has actually stopped. Reset to idle; a fresh run sets
+          // 'syncing' again immediately.
+          setProgress(IDLE);
+          return;
+        }
         const message =
           err instanceof LastFmError
             ? err.message

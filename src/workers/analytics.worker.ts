@@ -126,8 +126,8 @@ function compute(request: AnalyticsRequest): unknown {
       return forecast(slice, groupBy === 'genre' && Object.keys(genreMap).length > 0 ? genreOf : artistKey, {
         topN: Math.min(topN, 9),
         horizon: FORECAST_HORIZON,
-        smaWindow: 3,
-        regWindow: 12,
+        smaWindow: 6,
+        regWindow: 24,
       });
     default:
       return null;

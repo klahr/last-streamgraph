@@ -142,12 +142,18 @@ export default function App() {
 
   // A deployment can bake in a read-only API key (see public/config.js) so
   // visitors only need a username. When present it overrides whatever key is in
-  // localStorage, and the API-key field is hidden in the panel.
+  // localStorage, and the API-key field is hidden in the panel. The committed
+  // `creds` never holds the host key; it's injected here into `effectiveCreds`,
+  // which is what the sync hooks actually consume.
   const hostKey = hostApiKey();
+  const hostManagedKey = !!hostKey;
   const effectiveCreds = useMemo(
     () => (hostKey ? { ...creds, apiKey: hostKey } : creds),
     [creds, hostKey],
   );
+  // The key the user is effectively applying with: the host key when present
+  // (the field is hidden and `creds`/draft never holds it), else the draft key.
+  const effectiveApiKey = hostManagedKey ? hostKey : draftCreds.apiKey;
 
   const hasCreds =
     !!effectiveCreds.apiKey.trim() && !!effectiveCreds.username.trim();
@@ -302,8 +308,9 @@ export default function App() {
         onApplyCreds={applyCreds}
         canApply={
           (draftCreds.username.trim() !== creds.username.trim() ||
-            draftCreds.apiKey.trim() !== creds.apiKey.trim()) &&
-          !!draftCreds.apiKey.trim() &&
+            (!hostManagedKey &&
+              draftCreds.apiKey.trim() !== creds.apiKey.trim())) &&
+          !!effectiveApiKey.trim() &&
           !!draftCreds.username.trim()
         }
         hostManagedKey={!!hostKey}

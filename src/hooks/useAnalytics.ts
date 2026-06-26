@@ -89,8 +89,15 @@ export function useAnalytics(
   useEffect(() => {
     const client = clientRef.current;
     if (!client) return;
-    setProcessing(true);
-    setError(null);
+    // The streamgraph view has its own pipeline; skip the per-view compute so
+    // a streamgraph filter change doesn't briefly spin up a wasted analytics
+    // request (its result would be null anyway). Keep the dataset/genre upload
+    // path so a switch to an aux view is instant.
+    const isAuxView = view !== 'streamgraph';
+    if (isAuxView) {
+      setProcessing(true);
+      setError(null);
+    }
     const handle = setTimeout(() => {
       // Re-upload data only when its reference changed AND enough time has
       // passed since the last upload — sync flushes produce a new array every
@@ -110,6 +117,7 @@ export function useAnalytics(
         client.setGenres(genreMap);
         sentGenresRef.current = genreMap;
       }
+      if (!isAuxView) return;
       client
         .compute({ view, resolution, topN, groupBy, from, to })
         .then((payload) => {

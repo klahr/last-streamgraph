@@ -14,9 +14,7 @@ import type {
   SyncProgress,
   VizConfig,
 } from '../types';
-import { useState } from 'react';
 import { PALETTES } from '../utils/colors';
-import { shareLink } from '../utils/shareUrl';
 
 interface Props {
   /** Drawer open state (small screens only; always visible on large). */
@@ -167,11 +165,7 @@ export function ControlPanel({
             />
           </Field>
           <div className="flex items-center justify-between gap-2">
-            {hostManagedKey ? (
-              <span className="text-xs text-slate-500">
-                API key provided by host
-              </span>
-            ) : (
+            {!hostManagedKey && (
               <a
                 href="https://www.last.fm/api/account/create"
                 target="_blank"
@@ -181,7 +175,6 @@ export function ControlPanel({
                 Get an API key →
               </a>
             )}
-            {creds.username.trim() && <ShareLinkButton username={creds.username} />}
           </div>
           <button
             type="submit"
@@ -370,30 +363,6 @@ export function ControlPanel({
 
 const inputCls =
   'w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-sky-500';
-
-/** Copies a shareable link (origin + username) to the clipboard. */
-function ShareLinkButton({ username }: { username: string }) {
-  const [copied, setCopied] = useState(false);
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(shareLink(username));
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Clipboard blocked (e.g. insecure context); ignore — the URL bar still
-      // holds the same shareable link.
-    }
-  };
-  return (
-    <button
-      onClick={copy}
-      title="Copy a link that opens this username"
-      className="shrink-0 text-xs text-sky-400 hover:underline"
-    >
-      {copied ? 'Copied!' : 'Copy share link'}
-    </button>
-  );
-}
 
 /** Genre-enrichment status: progress bar while tagging, summary otherwise. */
 function GenreStatus({

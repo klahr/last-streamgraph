@@ -305,15 +305,19 @@ function nextMonth(ms: number): number {
 
 /**
  * TA-style projection: monthly plays per top-`topN` series → SMA + a
- * least-squares trend over the recent window, extrapolated `horizon` months
+ * least-squares trend over a recent window, extrapolated `horizon` months
  * ahead with a residual-based uncertainty band. Naive by design.
+ *
+ * The trend widens with the selected range: a short interval fits a reactive
+ * recent trend, a large interval fits a longer (but still recent-anchored)
+ * trend, so the range selection actually drives the horizon of the fit.
  */
 export function forecast(
   scrobbles: readonly CountableScrobble[],
   keyOf: (s: CountableScrobble) => string,
   opts: { topN: number; horizon: number; smaWindow: number; regWindow: number },
 ): ForecastSeries[] {
-  const { topN, horizon, smaWindow, regWindow } = opts;
+  const { topN, horizon } = opts;
   const byKey = new Map<number, Map<string, number>>();
   const totals = new Map<string, number>();
   let minMs = Infinity;
@@ -335,6 +339,15 @@ export function forecast(
 
   const monthStarts: number[] = [];
   for (let m = minMs; m <= maxMs; m = nextMonth(m)) monthStarts.push(m);
+
+  // Scale the trend window to the selected range so the interval drives the
+  // fit horizon: short ranges fit a reactive recent trend, large ranges fit a
+  // longer trend — but cap it so a decade of history doesn't extrapolate stale
+  // 2009 drift. `opts.regWindow`/`opts.smaWindow` are the caps; the actual span
+  // grows up to them via `monthStarts.length`.
+  const spanMonths = monthStarts.length;
+  const regWindow = Math.min(opts.regWindow, Math.max(6, spanMonths));
+  const smaWindow = Math.min(opts.smaWindow, Math.max(2, Math.round(spanMonths / 6)));
 
   const topKeys = [...totals.entries()]
     .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))

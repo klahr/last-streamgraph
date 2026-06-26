@@ -121,6 +121,29 @@ describe('forecast', () => {
     expect(series!.trend).toBe('rising');
     expect(series!.slope).toBeGreaterThan(0);
   });
+
+  it('widens the smoothing window for a longer selected range', () => {
+    // The trend/SMA windows scale with the selected span: a short range uses a
+    // tight reactive window, a long range a wider baseline. Observable via the
+    // SMA's leading-null prefix (length = smaWindow - 1) — a 36-month span
+    // should require more lead-in points than a 6-month span.
+    const build = (months: number): Scrobble[] => {
+      const out: Scrobble[] = [];
+      for (let m = 0; m < months; m++) out.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+      return out;
+    };
+    const shortRun = forecast(build(6), (x) => x.artist, {
+      topN: 1, horizon: 1, smaWindow: 6, regWindow: 24,
+    });
+    const longRun = forecast(build(36), (x) => x.artist, {
+      topN: 1, horizon: 1, smaWindow: 6, regWindow: 24,
+    });
+    const shortNulls = shortRun[0]!.sma.filter((v) => v == null).length;
+    const longNulls = longRun[0]!.sma.filter((v) => v == null).length;
+    // spanMonths=6  → smaWindow = min(6, max(2, round(6/6)=1)) = 2 → 1 leading null
+    // spanMonths=36 → smaWindow = min(6, max(2, round(36/6)=6)) = 6 → 5 leading nulls
+    expect(longNulls).toBeGreaterThan(shortNulls);
+  });
 });
 
 describe('networkGraph', () => {

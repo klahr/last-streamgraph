@@ -30,8 +30,3 @@ export function syncUsernameToPath(username: string): void {
     path + window.location.search + window.location.hash,
   );
 }
-
-/** Absolute shareable link for a username (origin + path). */
-export function shareLink(username: string): string {
-  return `${window.location.origin}/${encodeURIComponent(username)}`;
-}
