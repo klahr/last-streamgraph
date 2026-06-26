@@ -76,6 +76,10 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
         const buffer: Scrobble[] = [];
         let sinceFlush = 0;
         let fetched = 0;
+        // Rolling page-arrival timestamps (ms) for ETA; capped to a small
+        // window so the rate tracks recent network conditions, not the whole run.
+        const pageTimes: number[] = [];
+        const PAGE_RATE_WINDOW = 5;
 
         const flush = () => {
           if (buffer.length === 0) return;
@@ -103,12 +107,26 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
             flush();
             sinceFlush = 0;
           }
+          // ETA from the rolling page rate, only once enough samples exist
+          // and Last.fm has reported a real total. Phase A often has 0 total
+          // pages (nothing new) → no estimate.
+          let etaMs: number | undefined;
+          pageTimes.push(Date.now());
+          if (pageTimes.length > PAGE_RATE_WINDOW) pageTimes.shift();
+          if (pageTimes.length >= 3 && batch.totalPages > 0 && batch.totalPages > batch.page) {
+            const span = pageTimes[pageTimes.length - 1]! - pageTimes[0]!;
+            const intervals = pageTimes.length - 1;
+            const msPerPage = span / intervals;
+            const remaining = batch.totalPages - batch.page;
+            etaMs = Math.max(0, Math.round(msPerPage * remaining));
+          }
           setProgress({
             phase: 'syncing',
             page: batch.page,
             totalPages: batch.totalPages,
             fetched,
             message: `${label} page ${batch.page} of ${batch.totalPages}…`,
+            etaMs,
           });
         };
 

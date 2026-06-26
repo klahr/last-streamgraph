@@ -7,7 +7,6 @@
  * with a residual-based uncertainty band. It's a naive extrapolation, not a
  * real forecast — listening isn't a stock — so treat it as for-fun.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
 import { useResizeObserver } from '../../hooks/useResizeObserver';
 import { area, curveMonotoneX, line, scaleLinear } from 'd3';
 import type { ForecastProps } from './viewProps';
@@ -16,34 +15,8 @@ import { FORECAST_HORIZON } from '../../workers/analytics.worker';
 
 const CARD_H = 150;
 const M = { top: 22, right: 10, bottom: 18, left: 30 };
-/** Cards never shrink below this; the column count adapts to fill the width. */
-const CARD_MIN = 320;
-const GAP = 12;
 
 export function Forecast({ data: series, by }: ForecastProps) {
-  // Measure the scroll container so cards can fill the available width: one
-  // full-width column on small screens, more (each ≥ CARD_MIN) on large ones.
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [containerW, setContainerW] = useState(0);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver((entries) => {
-      const w = entries[0]?.contentRect.width ?? 0;
-      setContainerW((prev) => (prev === w ? prev : w));
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  // Column count from the measured width; subtract the inner padding (p-4 = 16px
-  // per side) so cols fit the actual content area. At least one column.
-  const cols = useMemo(() => {
-    const usable = Math.max(0, containerW - 32);
-    if (usable <= 0) return 1;
-    return Math.max(1, Math.floor((usable + GAP) / (CARD_MIN + GAP)));
-  }, [containerW]);
-
   if (!series.length) {
     return (
       <div className="flex h-full w-full items-center justify-center text-slate-500">
@@ -53,18 +26,17 @@ export function Forecast({ data: series, by }: ForecastProps) {
   }
 
   return (
-    <div ref={containerRef} className="h-full w-full overflow-auto p-4">
+    <div className="h-full w-full overflow-auto p-4">
       <p className="mb-3 text-xs text-slate-500">
         Projecting the next {FORECAST_HORIZON} months by {by} —
         moving average + least-squares trend with an uncertainty band. A naive
         extrapolation, for fun.
       </p>
-      <div
-        className="grid"
-        style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: GAP }}
-      >
+      <div className="flex flex-wrap gap-3">
         {series.map((s) => (
-          <ForecastCard key={s.key} s={s} />
+          <div key={s.key} className="w-full sm:w-[340px]">
+            <ForecastCard s={s} />
+          </div>
         ))}
       </div>
     </div>

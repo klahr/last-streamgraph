@@ -72,21 +72,3 @@ body {
 .dual-range__input::-moz-range-track {
   background: transparent;
 }
-
-/* Indeterminate top-of-chart busy bar (sync / processing / genre tagging). */
-.sg-busy-segment {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 40%;
-  background: #38bdf8;
-  animation: sg-busy 1.1s ease-in-out infinite;
-}
-@keyframes sg-busy {
-  0% {
-    left: -40%;
-  }
-  100% {
-    left: 100%;
-  }
-}

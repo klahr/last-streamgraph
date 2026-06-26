@@ -70,6 +70,8 @@ export interface GenreProgress {
   done: number;
   total: number;
   message: string;
+  /** Estimated ms remaining, when a rate signal is available. */
+  etaMs?: number;
 }
 
 /** Quick date-window presets plus a custom slider-defined window. */
@@ -115,6 +117,8 @@ export interface SyncProgress {
   totalPages: number;
   fetched: number;
   message: string;
+  /** Estimated ms remaining, when a rate signal is available. */
+  etaMs?: number;
   error?: string;
 }
 

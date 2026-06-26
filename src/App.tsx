@@ -392,8 +392,6 @@ export default function App() {
           </div>
         </div>
 
-        <BusyBar active={busy} />
-
         <div className="border-b border-slate-800 px-6 py-1.5">
           <p className="text-xs text-slate-500">{VIEW_DESCRIPTIONS[view]}</p>
         </div>
@@ -445,23 +443,6 @@ function EmptyState({ hostManagedKey }: { hostManagedKey: boolean }) {
           ? 'Type a username in the panel on the left to fetch and visualize that listening history. Everything is cached locally in your browser.'
           : 'Enter your credentials in the panel on the left to fetch and visualize your listening history. Everything is cached locally in your browser.'}
       </p>
-    </div>
-  );
-}
-
-/**
- * Thin indeterminate progress bar pinned under the view tabs — the single
- * always-visible signal that the app is working (worker recompute, sync, or
- * genre tagging). Its height is reserved even when idle so toggling it never
- * shifts the chart.
- */
-function BusyBar({ active }: { active: boolean }) {
-  return (
-    <div
-      className="relative h-[3px] w-full shrink-0 overflow-hidden bg-slate-800/40"
-      aria-hidden="true"
-    >
-      {active && <div className="sg-busy-segment" />}
     </div>
   );
 }

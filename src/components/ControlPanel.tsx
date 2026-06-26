@@ -425,6 +425,19 @@ export function ControlPanel({
 const inputCls =
   'w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-sky-500';
 
+/** Format an ETA (ms) as a compact "~Xm left" / "~Xs left" suffix, or ''. */
+function formatEta(etaMs?: number): string {
+  if (etaMs == null || !Number.isFinite(etaMs)) return '';
+  if (etaMs < 1000) return ' ~<1s left';
+  const s = Math.round(etaMs / 1000);
+  if (s < 60) return ` ~${s}s left`;
+  const m = Math.round(s / 60);
+  if (m < 60) return ` ~${m}m left`;
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  return ` ~${h}h ${remM}m left`;
+}
+
 /** Genre-enrichment status: progress bar while tagging, summary otherwise. */
 function GenreStatus({
   progress,
@@ -450,7 +463,7 @@ function GenreStatus({
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-slate-500">
           {progress.running
-            ? progress.message
+            ? `${progress.message}${formatEta(progress.etaMs)}`
             : missing > 0
               ? `${missing.toLocaleString()} artists untagged`
               : 'All artists tagged.'}
@@ -615,7 +628,7 @@ function ProgressIndicator({ progress }: { progress: SyncProgress }) {
           progress.phase === 'error' ? 'text-red-400' : 'text-slate-500'
         }`}
       >
-        {progress.message}
+        {progress.message}{formatEta(progress.etaMs)}
       </p>
     </div>
   );

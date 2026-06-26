@@ -103,6 +103,11 @@ export function useGenreEnrichment(
 
     let buffer: ArtistGenre[] = [];
     let done = 0;
+    // Rolling per-artist completion timestamps (ms) for ETA; the per-artist
+    // cost is dominated by the RATE_LIMIT_MS throttle plus one network call,
+    // so a small recent sample tracks real latency on top of the throttle.
+    const artistTimes: number[] = [];
+    const ARTIST_RATE_WINDOW = 20;
 
     const flush = async () => {
       if (buffer.length === 0) return;
@@ -138,7 +143,23 @@ export function useGenreEnrichment(
           have.add(key);
           done += 1;
           if (buffer.length >= FLUSH_EVERY) await flush();
-          setProgress({ running: true, done, total, message: `Tagging artists ${done} of ${total}…` });
+          // ETA from the rolling per-artist rate; only once enough samples exist
+          // and there's actual remaining work. `total` may keep growing as sync
+          // streams artists in, so this is a snapshot estimate that self-corrects.
+          artistTimes.push(Date.now());
+          if (artistTimes.length > ARTIST_RATE_WINDOW) artistTimes.shift();
+          let etaMs: number | undefined;
+          if (
+            artistTimes.length >= 5 &&
+            total > done &&
+            artistTimes[artistTimes.length - 1]! - artistTimes[0]! > 0
+          ) {
+            const span = artistTimes[artistTimes.length - 1]! - artistTimes[0]!;
+            const intervals = artistTimes.length - 1;
+            const msPerArtist = span / intervals;
+            etaMs = Math.max(0, Math.round(msPerArtist * (total - done)));
+          }
+          setProgress({ running: true, done, total, message: `Tagging artists ${done} of ${total}…`, etaMs });
           await sleep(RATE_LIMIT_MS, ac.signal);
         }
         await flush();
