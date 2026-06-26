@@ -303,6 +303,7 @@ export default function App() {
       <ControlPanel
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        view={view}
         creds={draftCreds}
         onCredsChange={setDraftCreds}
         onApplyCreds={applyCreds}

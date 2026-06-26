@@ -13,6 +13,7 @@ import type {
   StreamMode,
   SyncProgress,
   VizConfig,
+  View,
 } from '../types';
 import { PALETTES } from '../utils/colors';
 
@@ -21,6 +22,8 @@ interface Props {
   open: boolean;
   /** Close the drawer (small screens). */
   onClose: () => void;
+  /** Active view, used to show only the controls relevant to it. */
+  view: View;
   creds: Credentials;
   onCredsChange: (creds: Credentials) => void;
   /** Commit the draft credentials (triggers sync). */
@@ -57,6 +60,7 @@ const RANGE_PRESETS: { id: RangePreset; label: string }[] = [
 export function ControlPanel({
   open,
   onClose,
+  view,
   creds,
   onCredsChange,
   onApplyCreds,
@@ -84,6 +88,28 @@ export function ControlPanel({
       : config.groupBy === 'album'
         ? 'albums'
         : 'artists';
+
+  // Each control is shown only on the views it actually affects, so the panel
+  // never presents a knob that's silently inert on the current view.
+  const showResolution = view === 'streamgraph' || view === 'rankbump';
+  const showGroupBy =
+    view === 'streamgraph' || view === 'sunburst' || view === 'forecast';
+  const showStreamMode = view === 'streamgraph';
+  const showTopN =
+    view === 'streamgraph' ||
+    view === 'forecast' ||
+    view === 'rankbump' ||
+    view === 'network';
+  // `topN` means "top N per interval" only on the streamgraph; on the aux
+  // views it's a flat card/line/node count, so label it honestly per view.
+  const topNTitle =
+    view === 'streamgraph'
+      ? `Top ${config.topN} per interval`
+      : view === 'forecast'
+        ? `Top ${config.topN} forecast series`
+        : view === 'rankbump'
+          ? `Top ${config.topN} ranked`
+          : `Top ${config.topN} artists`;
 
   return (
     <aside
@@ -186,18 +212,21 @@ export function ControlPanel({
         </form>
       </Section>
 
-      {/* Time resolution */}
-      <Section title="Resolution">
-        <SegmentedControl<Resolution>
-          value={config.resolution}
-          onChange={(v) => onConfigChange({ resolution: v })}
-          options={[
-            { value: 'weekly', label: 'Weekly' },
-            { value: 'monthly', label: 'Monthly' },
-            { value: 'yearly', label: 'Yearly' },
-          ]}
-        />
-      </Section>
+      {/* Time resolution (streamgraph + rankbump only — forecast buckets
+          monthly internally; the calendar views are resolution-agnostic) */}
+      {showResolution && (
+        <Section title="Resolution">
+          <SegmentedControl<Resolution>
+            value={config.resolution}
+            onChange={(v) => onConfigChange({ resolution: v })}
+            options={[
+              { value: 'weekly', label: 'Weekly' },
+              { value: 'monthly', label: 'Monthly' },
+              { value: 'yearly', label: 'Yearly' },
+            ]}
+          />
+        </Section>
+      )}
 
       {/* Date range */}
       <Section title="Date range">
@@ -231,78 +260,89 @@ export function ControlPanel({
         </p>
       </Section>
 
-      {/* Group by: artists vs genres */}
-      <Section title="Group by">
-        <SegmentedControl<GroupBy>
-          value={config.groupBy}
-          onChange={(v) => onConfigChange({ groupBy: v })}
-          options={[
-            { value: 'artist', label: 'Artists' },
-            { value: 'genre', label: 'Genres' },
-            { value: 'album', label: 'Albums' },
-          ]}
-        />
-        {config.groupBy === 'genre' && (
-          <GenreStatus
-            progress={genreProgress}
-            missing={genreMissing}
-            onRefetch={onRefetchGenres}
+      {/* Group by (streamgraph / sunburst / forecast — the only views whose
+          grouping key changes what's plotted) */}
+      {showGroupBy && (
+        <Section title="Group by">
+          <SegmentedControl<GroupBy>
+            value={config.groupBy}
+            onChange={(v) => onConfigChange({ groupBy: v })}
+            options={[
+              { value: 'artist', label: 'Artists' },
+              { value: 'genre', label: 'Genres' },
+              { value: 'album', label: 'Albums' },
+            ]}
           />
-        )}
-      </Section>
+          {config.groupBy === 'genre' && (
+            <GenreStatus
+              progress={genreProgress}
+              missing={genreMissing}
+              onRefetch={onRefetchGenres}
+            />
+          )}
+        </Section>
+      )}
 
-      {/* Stream mode */}
-      <Section title="Stream mode">
-        <SegmentedControl<StreamMode>
-          value={config.mode}
-          onChange={(v) => onConfigChange({ mode: v })}
-          options={[
-            { value: 'absolute', label: 'Absolute' },
-            { value: 'relative', label: 'Relative %' },
-          ]}
-        />
-      </Section>
+      {/* Stream mode (streamgraph only — absolute vs relative share) */}
+      {showStreamMode && (
+        <Section title="Stream mode">
+          <SegmentedControl<StreamMode>
+            value={config.mode}
+            onChange={(v) => onConfigChange({ mode: v })}
+            options={[
+              { value: 'absolute', label: 'Absolute' },
+              { value: 'relative', label: 'Relative %' },
+            ]}
+          />
+        </Section>
+      )}
 
-      {/* Artist limit (per interval) */}
-      <Section title={`Top ${config.topN} per interval`}>
-        <input
-          type="range"
-          min={5}
-          max={100}
-          step={1}
-          value={config.topN}
-          onChange={(e) => onConfigChange({ topN: Number(e.target.value) })}
-          className="w-full accent-sky-500"
-        />
-        <div className="mt-2 flex gap-2">
-          {ARTIST_LIMITS.map((n) => (
-            <button
-              key={n}
-              onClick={() => onConfigChange({ topN: n })}
-              className={`flex-1 rounded border px-2 py-1 text-xs transition ${
-                config.topN === n
-                  ? 'border-sky-500 bg-sky-500/20 text-sky-300'
-                  : 'border-slate-700 text-slate-400 hover:border-slate-600'
-              }`}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-        <label className="mt-3 flex items-center gap-2 text-sm text-slate-400">
+      {/* Top-N count: per interval on the streamgraph, a flat card/line/node
+          count on forecast/rank/network. The “Others” fold is streamgraph-only. */}
+      {showTopN && (
+        <Section title={topNTitle}>
           <input
-            type="checkbox"
-            checked={config.othersMode === 'group'}
-            onChange={(e) =>
-              onConfigChange({
-                othersMode: e.target.checked ? 'group' : 'discard',
-              })
-            }
-            className="accent-sky-500"
+            type="range"
+            min={5}
+            max={100}
+            step={1}
+            value={config.topN}
+            onChange={(e) => onConfigChange({ topN: Number(e.target.value) })}
+            className="w-full accent-sky-500"
           />
-          Group the rest into “Others”
-        </label>
-      </Section>
+          <div className="mt-2 flex gap-2">
+            {ARTIST_LIMITS.map((n) => (
+              <button
+                key={n}
+                onClick={() => onConfigChange({ topN: n })}
+                className={`flex-1 rounded border px-2 py-1 text-xs transition ${
+                  config.topN === n
+                    ? 'border-sky-500 bg-sky-500/20 text-sky-300'
+                    : 'border-slate-700 text-slate-400 hover:border-slate-600'
+                }`
+              }
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+          {view === 'streamgraph' && (
+            <label className="mt-3 flex items-center gap-2 text-sm text-slate-400">
+              <input
+                type="checkbox"
+                checked={config.othersMode === 'group'}
+                onChange={(e) =>
+                  onConfigChange({
+                    othersMode: e.target.checked ? 'group' : 'discard',
+                  })
+                }
+                className="accent-sky-500"
+              />
+              Group the rest into “Others”
+            </label>
+          )}
+        </Section>
+      )}
 
       {/* Palette */}
       <Section title="Palette">
