@@ -6,6 +6,7 @@ import {
   dailyCounts,
   rankOverTime,
   forecast,
+  networkGraph,
 } from './analytics';
 import type { Scrobble } from '../types';
 
@@ -119,5 +120,29 @@ describe('forecast', () => {
     expect(series!.projection).toHaveLength(3);
     expect(series!.trend).toBe('rising');
     expect(series!.slope).toBeGreaterThan(0);
+  });
+});
+
+describe('networkGraph', () => {
+  it('preserves multi-word artist names in co-play edges', () => {
+    // Two artists with spaces in their names, played together enough days to
+    // clear MIN_SHARED_DAYS. A naive `'a b'.split(' ')` would corrupt the
+    // edge endpoints into the first word of each name.
+    const day = (m: number) => new Date(2025, m, 1);
+    const s: Scrobble[] = [];
+    for (let m = 0; m < 5; m++) {
+      s.push(mk('Fleetwood Mac', day(m)));
+      s.push(mk('Taylor Swift', day(m)));
+    }
+    const { nodes, links } = networkGraph(s, {}, {
+      topN: 10,
+      maxNodes: 60,
+      minSharedDays: 3,
+      maxEdges: 400,
+    });
+    expect(nodes.map((n) => n.artist).sort()).toEqual(['Fleetwood Mac', 'Taylor Swift']);
+    expect(links).toHaveLength(1);
+    expect(links[0]!.source).toBe('Fleetwood Mac');
+    expect(links[0]!.target).toBe('Taylor Swift');
   });
 });

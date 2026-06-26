@@ -259,25 +259,26 @@ export function networkGraph(
     set.add(s.artist);
   }
 
-  const pairWeights = new Map<string, number>();
+  const pairWeights = new Map<string, { source: string; target: string; weight: number }>();
   for (const set of dayArtists.values()) {
     const present = [...set].sort();
     for (let i = 0; i < present.length; i++) {
       for (let j = i + 1; j < present.length; j++) {
-        const k = `${present[i]} ${present[j]}`;
-        pairWeights.set(k, (pairWeights.get(k) ?? 0) + 1);
+        // Key on a control character artist names can't contain so multi-word
+        // names ("Fleetwood Mac") don't corrupt the pair when decoded.
+        const k = `${present[i]}\u0000${present[j]}`;
+        const e = pairWeights.get(k);
+        if (e) e.weight += 1;
+        else pairWeights.set(k, { source: present[i]!, target: present[j]!, weight: 1 });
       }
     }
   }
 
-  const links: NetworkLink[] = [...pairWeights.entries()]
-    .filter(([, w]) => w >= opts.minSharedDays)
-    .sort((a, b) => b[1] - a[1])
+  const links: NetworkLink[] = [...pairWeights.values()]
+    .filter((e) => e.weight >= opts.minSharedDays)
+    .sort((a, b) => b.weight - a.weight)
     .slice(0, opts.maxEdges)
-    .map(([k, weight]) => {
-      const [source, target] = k.split(' ');
-      return { source: source!, target: target!, weight };
-    });
+    .map(({ source, target, weight }) => ({ source, target, weight }));
 
   return { nodes, links };
 }

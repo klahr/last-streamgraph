@@ -48,16 +48,27 @@ export type AnalyticsViewResult =
   | { view: 'network'; payload: NetworkData }
   | { view: 'forecast'; payload: ForecastSeries[] };
 
+export interface AnalyticsState {
+  result: AnalyticsViewResult | null;
+  processing: boolean;
+  error: string | null;
+}
+
+/** Min gap between two dataset uploads to the worker (see useProcessedData). */
+const UPLOAD_MIN_MS = 3000;
+
 export function useAnalytics(
   scrobbles: Scrobble[],
   genreMap: Record<string, string>,
   opts: Options,
-): { result: AnalyticsViewResult | null; processing: boolean } {
+): AnalyticsState {
   const clientRef = useRef<AnalyticsClient | null>(null);
   const sentDataRef = useRef<Scrobble[] | null>(null);
   const sentGenresRef = useRef<Record<string, string> | null>(null);
+  const lastUploadAtRef = useRef(0);
   const [raw, setRaw] = useState<{ view: View; payload: unknown } | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // Create the worker in an effect (see useProcessedData for the StrictMode
   // rationale) and tear it down on cleanup.
@@ -67,39 +78,56 @@ export function useAnalytics(
     return () => {
       client.terminate();
       clientRef.current = null;
+      // A recreated client has an empty worker dataset; force a re-upload.
       sentDataRef.current = null;
       sentGenresRef.current = null;
     };
   }, []);
 
-  const { view, resolution, topN, from, to } = opts;
+  const { view, resolution, topN, groupBy, from, to } = opts;
 
   useEffect(() => {
     const client = clientRef.current;
     if (!client) return;
     setProcessing(true);
+    setError(null);
     const handle = setTimeout(() => {
-      if (sentDataRef.current !== scrobbles) {
+      // Re-upload data only when its reference changed AND enough time has
+      // passed since the last upload — sync flushes produce a new array every
+      // few seconds, each potentially huge; throttling bounds the clone cost.
+      const now = Date.now();
+      if (
+        sentDataRef.current !== scrobbles &&
+        now - lastUploadAtRef.current >= UPLOAD_MIN_MS
+      ) {
         client.setData(
           scrobbles.map((s) => ({ artist: s.artist, uts: s.uts, album: s.album })),
         );
         sentDataRef.current = scrobbles;
+        lastUploadAtRef.current = now;
       }
       if (sentGenresRef.current !== genreMap) {
         client.setGenres(genreMap);
         sentGenresRef.current = genreMap;
       }
       client
-        .compute({ view, resolution, topN, from, to })
-        .then((payload) => setRaw({ view, payload }))
-        .catch((err) => {
-          if (err instanceof StaleRequestError) return;
+        .compute({ view, resolution, topN, groupBy, from, to })
+        .then((payload) => {
+          setRaw({ view, payload });
+          setProcessing(false);
         })
-        .finally(() => setProcessing(false));
+        .catch((err) => {
+          // A superseded request must not flip `processing` off: a newer
+          // request is still in flight, and clearing it would flash the
+          // BusyBar off mid-work.
+          if (err instanceof StaleRequestError) return;
+          setProcessing(false);
+          setError(err instanceof Error ? err.message : String(err));
+        });
     }, 120);
     return () => clearTimeout(handle);
-  }, [scrobbles, genreMap, view, resolution, topN, from, to]);
+  }, [scrobbles, genreMap, view, resolution, topN, groupBy, from, to]);
 
   const result = raw as AnalyticsViewResult | null;
-  return { result, processing };
+  return { result, processing, error };
 }

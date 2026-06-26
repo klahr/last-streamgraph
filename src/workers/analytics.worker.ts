@@ -23,6 +23,7 @@ import { bucketFor } from '../utils/dataProcessor';
 import { UNKNOWN_GENRE } from '../utils/genres';
 import type { CountableScrobble } from '../utils/dataProcessor';
 import type {
+  GroupBy,
   Resolution,
   View,
 } from '../types';
@@ -32,6 +33,7 @@ export interface AnalyticsRequest {
   view: View;
   resolution: Resolution;
   topN: number;
+  groupBy: GroupBy;
   /** Inclusive bucket-level date window (epoch ms). Omit for all-time. */
   from?: number;
   to?: number;
@@ -50,42 +52,52 @@ export interface WorkerResponse {
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
 
+/** Forecast projection horizon (months). Shared with the Forecast view. */
+export const FORECAST_HORIZON = 6;
+
 let dataset: CountableScrobble[] = [];
 let genreMap: Record<string, string> = {};
 
 // Memoize range-filtered slices to avoid re-scanning on every slider tick. The
-// ranged slice is identical for all views for a given (from, to), so sharing it
-// across views is safe.
-let sliceCache: { from?: number; to?: number; slice: CountableScrobble[] } | null = null;
+// ranged slice is identical for all views for a given (resolution, from, to),
+// so sharing it across views is safe.
+let sliceCache: {
+  resolution: Resolution;
+  from?: number;
+  to?: number;
+  slice: CountableScrobble[];
+} | null = null;
 
-function rangedSlice(from?: number, to?: number): CountableScrobble[] {
+function rangedSlice(
+  resolution: Resolution,
+  from?: number,
+  to?: number,
+): CountableScrobble[] {
   if (from == null && to == null) return dataset;
-  if (sliceCache && sliceCache.from === from && sliceCache.to === to) return sliceCache.slice;
+  if (
+    sliceCache &&
+    sliceCache.resolution === resolution &&
+    sliceCache.from === from &&
+    sliceCache.to === to
+  )
+    return sliceCache.slice;
   const lo = from ?? -Infinity;
   const hi = to ?? Infinity;
   const slice = dataset.filter((s) => {
-    const start = bucketFor(s.uts, 'monthly').start;
+    const start = bucketFor(s.uts, resolution).start;
     return start >= lo && start <= hi;
   });
-  sliceCache = { from, to, slice };
+  sliceCache = { resolution, from, to, slice };
   return slice;
 }
 
-// Per-view memo: invalidated whenever the dataset, genre map, or filter window
-// changes. Cheap views (punchcard/seasonal) recompute trivially anyway; this
-// mainly protects the heavier ones (network, forecast) from re-running on a
-// view switch back to a recently-seen view with the same filters.
-let memo: { view: View; from?: number; to?: number; payload: unknown } | null = null;
-
 const genreOf = (s: CountableScrobble) =>
   genreMap[s.artist.toLowerCase()] ?? UNKNOWN_GENRE;
-const byGenreKey = (s: CountableScrobble) => genreOf(s);
+const artistKey = (s: CountableScrobble) => s.artist;
 
 function compute(request: AnalyticsRequest): unknown {
-  const { view, resolution, topN, from, to } = request;
-  if (memo && memo.view === view && memo.from === from && memo.to === to) return memo.payload;
-
-  const slice = rangedSlice(from, to);
+  const { view, resolution, topN, groupBy, from, to } = request;
+  const slice = rangedSlice(resolution, from, to);
 
   switch (view) {
     case 'punchcard':
@@ -108,9 +120,12 @@ function compute(request: AnalyticsRequest): unknown {
         maxEdges: 400,
       });
     case 'forecast':
-      return forecast(slice, byGenreKey, {
+      // Key by genre only when genres are loaded AND the user asked for genre
+      // grouping; otherwise forecast per artist so the view is useful
+      // immediately, before the rate-limited genre fetch (250ms/artist) lands.
+      return forecast(slice, groupBy === 'genre' && Object.keys(genreMap).length > 0 ? genreOf : artistKey, {
         topN: Math.min(topN, 9),
-        horizon: 6,
+        horizon: FORECAST_HORIZON,
         smaWindow: 3,
         regWindow: 12,
       });
@@ -125,19 +140,16 @@ ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
   if (msg.type === 'data') {
     dataset = msg.scrobbles;
     sliceCache = null;
-    memo = null;
     return;
   }
   if (msg.type === 'genres') {
     genreMap = msg.map;
-    memo = null;
     return;
   }
 
   // type === 'compute'
   try {
     const payload = compute(msg.request);
-    memo = { view: msg.request.view, from: msg.request.from, to: msg.request.to, payload };
     ctx.postMessage({ id: msg.id, data: { view: msg.request.view, payload } } satisfies WorkerResponse);
   } catch (err) {
     ctx.postMessage({

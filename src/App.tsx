@@ -191,6 +191,7 @@ export default function App() {
   const {
     result: analyticsResult,
     processing: analyticsProcessing,
+    error: analyticsError,
   } = useAnalytics(scrobbles, genre.genreMap, {
     view,
     resolution: config.resolution,
@@ -247,7 +248,10 @@ export default function App() {
         ) : null;
       case 'forecast':
         return analyticsResult?.view === 'forecast' ? (
-          <Forecast data={analyticsResult.payload} />
+          <Forecast
+            data={analyticsResult.payload}
+            byGenre={config.groupBy === 'genre' && Object.keys(genre.genreMap).length > 0}
+          />
         ) : null;
       default:
         return null;
@@ -356,6 +360,8 @@ export default function App() {
         <div ref={chartRef} className="relative min-h-0 flex-1" aria-busy={busy}>
           {!hasCreds ? (
             <EmptyState hostManagedKey={!!hostKey} />
+          ) : analyticsError && view !== 'streamgraph' ? (
+            <ErrorState message={analyticsError} />
           ) : view !== 'streamgraph' &&
               analyticsResult?.view !== view ? (
             <LoadingState message={busyMessage} />
@@ -415,6 +421,16 @@ function LoadingState({ message }: { message: string }) {
     <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
       <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-sky-400" />
       <p className="text-sm">{message}</p>
+    </div>
+  );
+}
+
+/** View couldn't be computed (e.g. a worker error). Shown instead of a stuck spinner. */
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500">
+      <p className="text-sm text-red-400">Couldn't render this view.</p>
+      <p className="max-w-sm text-xs text-slate-500">{message}</p>
     </div>
   );
 }

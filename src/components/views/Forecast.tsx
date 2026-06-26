@@ -10,12 +10,13 @@
 import { area, curveMonotoneX, line, scaleLinear } from 'd3';
 import type { ForecastProps } from './viewProps';
 import type { ForecastSeries } from '../../utils/analytics';
+import { FORECAST_HORIZON } from '../../workers/analytics.worker';
 
 const CARD_W = 280;
 const CARD_H = 150;
 const M = { top: 22, right: 10, bottom: 18, left: 30 };
 
-export function Forecast({ data: series }: ForecastProps) {
+export function Forecast({ data: series, byGenre }: ForecastProps) {
   if (!series.length) {
     return (
       <div className="flex h-full w-full items-center justify-center text-slate-500">
@@ -27,8 +28,9 @@ export function Forecast({ data: series }: ForecastProps) {
   return (
     <div className="h-full w-full overflow-auto p-4">
       <p className="mb-3 text-xs text-slate-500">
-        Projecting the next 6 months — moving average + least-squares trend with
-        an uncertainty band. A naive extrapolation, for fun.
+        Projecting the next {FORECAST_HORIZON} months by {byGenre ? 'genre' : 'artist'} —
+        moving average + least-squares trend with an uncertainty band. A naive
+        extrapolation, for fun.
       </p>
       <div className="flex flex-wrap gap-3">
         {series.map((s) => (
