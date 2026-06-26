@@ -89,31 +89,12 @@ export async function putScrobbles(scrobbles: Scrobble[]): Promise<void> {
 }
 
 /**
- * Newest cached `uts` for a user, or `null` if nothing is cached.
- * Used as the `from` watermark for incremental sync.
+ * Load every cached scrobble for a user, ascending by uts.
  */
-export async function getLatestUts(user: string): Promise<number | null> {
-  const db = await getDB();
-  // The by_user_uts index sorts by [user, uts]; walk the upper bound backwards.
-  const range = IDBKeyRange.bound([user, -Infinity], [user, Infinity]);
-  const cursor = await db
-    .transaction(STORE)
-    .store.index('by_user_uts')
-    .openCursor(range, 'prev');
-  return cursor ? cursor.value.uts : null;
-}
-
-/** Load every cached scrobble for a user, ascending by uts. */
 export async function getAllScrobbles(user: string): Promise<Scrobble[]> {
   const db = await getDB();
   const range = IDBKeyRange.bound([user, -Infinity], [user, Infinity]);
   return db.getAllFromIndex(STORE, 'by_user_uts', range);
-}
-
-/** Count cached scrobbles for a user. */
-export async function countScrobbles(user: string): Promise<number> {
-  const db = await getDB();
-  return db.countFromIndex(STORE, 'by_user', user);
 }
 
 /** Wipe a single user's cached history + sync state (forces a full re-sync). */

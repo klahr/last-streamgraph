@@ -88,13 +88,22 @@ export function ControlPanel({
       }`}
     >
       <header className="flex items-start justify-between gap-2">
-        <div>
+        <div className="flex items-start gap-2.5">
+          <img
+            src="/icon.svg"
+            alt=""
+            width={32}
+            height={32}
+            className="mt-0.5 shrink-0 rounded-lg"
+          />
+          <div>
           <h1 className="text-lg font-semibold text-slate-100">
             Last Streamgraph
           </h1>
           <p className="text-xs text-slate-500">
             Your Last.fm history as a flowing stream.
           </p>
+          </div>
         </div>
         <button
           onClick={onClose}

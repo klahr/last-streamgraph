@@ -29,7 +29,6 @@ const IDLE: SyncProgress = {
 export interface ScrobbleData {
   scrobbles: Scrobble[];
   progress: SyncProgress;
-  loaded: boolean;
   /** Incremental sync: fetch only plays newer than the cache watermark. */
   sync: () => void;
   /** Drop the cache for this user and re-fetch the entire history. */
@@ -39,7 +38,6 @@ export interface ScrobbleData {
 export function useScrobbleData(creds: Credentials | null): ScrobbleData {
   const [scrobbles, setScrobbles] = useState<Scrobble[]>([]);
   const [progress, setProgress] = useState<SyncProgress>(IDLE);
-  const [loaded, setLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const valid = !!creds && !!creds.apiKey.trim() && !!creds.username.trim();
@@ -62,7 +60,6 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
         // resumed sync already shows whatever was fetched before the abort).
         const cached = await getAllScrobbles(user);
         setScrobbles(cached);
-        setLoaded(true);
 
         const state: SyncState = await getSyncState(user);
         // Track ids we already hold so inclusive boundaries can't double-count.
@@ -170,7 +167,6 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
   useEffect(() => {
     if (!valid) {
       setScrobbles([]);
-      setLoaded(false);
       setProgress(IDLE);
       return;
     }
@@ -186,5 +182,5 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
   const sync = useCallback(() => void runSync(false), [runSync]);
   const fullResync = useCallback(() => void runSync(true), [runSync]);
 
-  return { scrobbles, progress, loaded, sync, fullResync };
+  return { scrobbles, progress, sync, fullResync };
 }

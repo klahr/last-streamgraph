@@ -98,7 +98,9 @@ describe('processScrobbles', () => {
       othersMode: 'discard',
     });
     expect(res.keys).toEqual(['A', 'B']);
-    expect(res.grandTotal).toBe(8);
+    // grandTotal counts ALL in-range plays (C is discarded from the chart but
+    // still counted in the header's "plays across N months").
+    expect(res.grandTotal).toBe(9);
     expect(res.matrix[0]).not.toHaveProperty(OTHERS_KEY);
   });
 

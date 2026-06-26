@@ -212,7 +212,12 @@ export function buildFromAggregation(
     for (const [a, c] of artistTotals) if (!kept.has(a)) others += c;
     totals[OTHERS_KEY] = others;
   }
-  const grandTotal = keys.reduce((sum, k) => sum + (totals[k] ?? 0), 0);
+  // grandTotal is the TRUE in-range play count (all artists, kept or not):
+  // in `discard` mode `keys` omits the capped tail, so summing `keys` would
+  // undercount — and the App header reports this number as "plays across N
+  // months", which must reflect everything in the window.
+  let grandTotal = 0;
+  for (const c of artistTotals.values()) grandTotal += c;
 
   const matrix: StackDatum[] = [];
   for (

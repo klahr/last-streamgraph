@@ -1,0 +1,15 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="64" height="64" rx="14" fill="#16161e"/>
+  <g clip-path="url(#clip)">
+    <!-- Flowing streamgraph bands: each layer ripples across the width -->
+    <path d="M0 30 C 12 20, 22 22, 32 30 C 42 38, 52 40, 64 32 L 64 24 C 52 32, 42 30, 32 22 C 22 14, 12 12, 0 22 Z" fill="#f7768e"/>
+    <path d="M0 38 C 12 30, 22 32, 32 38 C 42 44, 52 46, 64 40 L 64 32 C 52 40, 42 38, 32 30 C 22 22, 12 20, 0 30 Z" fill="#e0af68"/>
+    <path d="M0 46 C 12 40, 22 42, 32 46 C 42 50, 52 52, 64 48 L 64 40 C 52 46, 42 44, 32 38 C 22 32, 12 30, 0 38 Z" fill="#9ece6a"/>
+    <path d="M0 54 C 12 50, 22 51, 32 54 C 42 57, 52 58, 64 55 L 64 48 C 52 52, 42 50, 32 46 C 22 42, 12 40, 0 46 Z" fill="#7aa2f7"/>
+  </g>
+  <defs>
+    <clipPath id="clip">
+      <rect width="64" height="64" rx="14"/>
+    </clipPath>
+  </defs>
+</svg>
