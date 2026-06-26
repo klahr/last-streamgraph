@@ -94,6 +94,7 @@ function rangedSlice(
 const genreOf = (s: CountableScrobble) =>
   genreMap[s.artist.toLowerCase()] ?? UNKNOWN_GENRE;
 const artistKey = (s: CountableScrobble) => s.artist;
+const albumKey = (s: CountableScrobble) => s.album || 'Unknown Album';
 
 function compute(request: AnalyticsRequest): unknown {
   const { view, resolution, topN, groupBy, from, to } = request;
@@ -121,14 +122,23 @@ function compute(request: AnalyticsRequest): unknown {
       });
     case 'forecast':
       // Key by genre only when genres are loaded AND the user asked for genre
-      // grouping; otherwise forecast per artist so the view is useful
-      // immediately, before the rate-limited genre fetch (250ms/artist) lands.
-      return forecast(slice, groupBy === 'genre' && Object.keys(genreMap).length > 0 ? genreOf : artistKey, {
-        topN,
-        horizon: FORECAST_HORIZON,
-        smaWindow: 6,
-        regWindow: 24,
-      });
+      // grouping; by album when grouping by album; otherwise per artist so the
+      // view is useful immediately, before the rate-limited genre fetch
+      // (250ms/artist) lands.
+      return forecast(
+        slice,
+        groupBy === 'genre' && Object.keys(genreMap).length > 0
+          ? genreOf
+          : groupBy === 'album'
+            ? albumKey
+            : artistKey,
+        {
+          topN,
+          horizon: FORECAST_HORIZON,
+          smaWindow: 6,
+          regWindow: 24,
+        },
+      );
     default:
       return null;
   }

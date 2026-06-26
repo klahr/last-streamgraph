@@ -48,6 +48,6 @@ export interface NetworkProps extends DisplayProps {
 
 export interface ForecastProps {
   data: ForecastSeries[];
-  /** True when forecasting per genre (genres loaded + genre grouping); else per artist. */
-  byGenre: boolean;
+  /** What the projection is keyed by — drives the descriptor copy. */
+  by: 'artist' | 'genre' | 'album';
 }

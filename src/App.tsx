@@ -281,7 +281,13 @@ export default function App() {
         return analyticsResult?.view === 'forecast' ? (
           <Forecast
             data={analyticsResult.payload}
-            byGenre={config.groupBy === 'genre' && Object.keys(genre.genreMap).length > 0}
+            by={
+              config.groupBy === 'genre' && Object.keys(genre.genreMap).length > 0
+                ? 'genre'
+                : config.groupBy === 'album'
+                  ? 'album'
+                  : 'artist'
+            }
           />
         ) : null;
       default:
