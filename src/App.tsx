@@ -108,6 +108,17 @@ export default function App() {
   // the hamburger; on large screens it's always-visible and this is ignored.
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Credential fields bind to a non-persisted DRAFT; nothing commits to
+  // `creds` (which the sync hooks watch) until the user hits Apply. This stops
+  // an auto-sync kicking off on every keystroke while typing a username. The
+  // draft re-seeds from `creds` when the latter changes out-of-band (share-URL
+  // path user, or a full resync clearing the cache).
+  const [draftCreds, setDraftCreds] = useState<Credentials>(creds);
+  useEffect(() => {
+    setDraftCreds(creds);
+  }, [creds]);
+  const applyCreds = () => setCreds(draftCreds);
+
   // Shareable links carry the username in the URL path (e.g. /klarre908). On
   // first load that wins over the stored username; the API key is never in the
   // URL, so the viewer still uses their own key from localStorage.
@@ -286,8 +297,15 @@ export default function App() {
       <ControlPanel
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
-        creds={creds}
-        onCredsChange={setCreds}
+        creds={draftCreds}
+        onCredsChange={setDraftCreds}
+        onApplyCreds={applyCreds}
+        canApply={
+          (draftCreds.username.trim() !== creds.username.trim() ||
+            draftCreds.apiKey.trim() !== creds.apiKey.trim()) &&
+          !!draftCreds.apiKey.trim() &&
+          !!draftCreds.username.trim()
+        }
         hostManagedKey={!!hostKey}
         config={config}
         onConfigChange={patchConfig}

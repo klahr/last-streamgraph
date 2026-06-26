@@ -25,6 +25,10 @@ interface Props {
   onClose: () => void;
   creds: Credentials;
   onCredsChange: (creds: Credentials) => void;
+  /** Commit the draft credentials (triggers sync). */
+  onApplyCreds: () => void;
+  /** Whether Apply is enabled (dirty + valid). */
+  canApply: boolean;
   /** Host baked in the API key (config.js); hide the key field when true. */
   hostManagedKey: boolean;
   config: VizConfig;
@@ -57,6 +61,8 @@ export function ControlPanel({
   onClose,
   creds,
   onCredsChange,
+  onApplyCreds,
+  canApply,
   hostManagedKey,
   config,
   onConfigChange,
@@ -127,49 +133,64 @@ export function ControlPanel({
 
       {/* Credentials */}
       <Section title="Last.fm">
-        {!hostManagedKey && (
-          <Field label="API Key">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (canApply) onApplyCreds();
+          }}
+          className="contents"
+        >
+          {!hostManagedKey && (
+            <Field label="API Key">
+              <input
+                type="password"
+                autoComplete="off"
+                value={creds.apiKey}
+                onChange={(e) =>
+                  onCredsChange({ ...creds, apiKey: e.target.value })
+                }
+                placeholder="32-char API key"
+                className={inputCls}
+              />
+            </Field>
+          )}
+          <Field label="Username">
             <input
-              type="password"
+              type="text"
               autoComplete="off"
-              value={creds.apiKey}
+              value={creds.username}
               onChange={(e) =>
-                onCredsChange({ ...creds, apiKey: e.target.value })
+                onCredsChange({ ...creds, username: e.target.value })
               }
-              placeholder="32-char API key"
+              placeholder="last.fm username"
               className={inputCls}
             />
           </Field>
-        )}
-        <Field label="Username">
-          <input
-            type="text"
-            autoComplete="off"
-            value={creds.username}
-            onChange={(e) =>
-              onCredsChange({ ...creds, username: e.target.value })
-            }
-            placeholder="last.fm username"
-            className={inputCls}
-          />
-        </Field>
-        <div className="flex items-center justify-between gap-2">
-          {hostManagedKey ? (
-            <span className="text-xs text-slate-500">
-              API key provided by host
-            </span>
-          ) : (
-            <a
-              href="https://www.last.fm/api/account/create"
-              target="_blank"
-              rel="noreferrer"
-              className="text-xs text-sky-400 hover:underline"
-            >
-              Get an API key →
-            </a>
-          )}
-          {creds.username.trim() && <ShareLinkButton username={creds.username} />}
-        </div>
+          <div className="flex items-center justify-between gap-2">
+            {hostManagedKey ? (
+              <span className="text-xs text-slate-500">
+                API key provided by host
+              </span>
+            ) : (
+              <a
+                href="https://www.last.fm/api/account/create"
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-sky-400 hover:underline"
+              >
+                Get an API key →
+              </a>
+            )}
+            {creds.username.trim() && <ShareLinkButton username={creds.username} />}
+          </div>
+          <button
+            type="submit"
+            disabled={!canApply}
+            className="rounded bg-sky-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Apply
+          </button>
+        </form>
       </Section>
 
       {/* Time resolution */}
