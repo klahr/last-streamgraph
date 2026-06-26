@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import type { Size } from '../../hooks/useResizeObserver';
 import type { PaletteId } from '../../types';
 import type {

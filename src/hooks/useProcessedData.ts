@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Run the scrobble-processing pipeline in a Web Worker, re-running (debounced)
  * whenever the scrobble set, genre map, or relevant config changes.

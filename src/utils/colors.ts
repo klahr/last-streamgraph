@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Color palette helpers. Each palette maps an artist's stacking position to a
  * stable color sampled across a D3 sequential interpolator.

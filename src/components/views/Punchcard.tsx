@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Listening punchcard: a weekday × hour heatmap of when you listen (local time).
  * Cell color encodes play count for that (day, hour) slot.

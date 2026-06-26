@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Optional host-provided runtime configuration, injected by `/config.js` (a
  * classic script loaded before the app — see `public/config.js`). It lets a

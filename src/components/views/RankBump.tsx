@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Rank bump chart: tracks how the top artists' ranking shifts across time
  * buckets. Each artist is a line through its (bucket, rank) points with rank 1

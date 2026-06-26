@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Orchestrates the data lifecycle: hydrate from IndexedDB, run a resumable sync
  * against Last.fm (forward-fill new plays + backfill older history), persist

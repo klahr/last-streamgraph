@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Genre sunburst: a two-ring radial breakdown of your listening. The inner ring
  * is your top genres (sized by total plays); the outer ring is each genre's top

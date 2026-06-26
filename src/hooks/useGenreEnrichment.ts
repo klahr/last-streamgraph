@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Enriches artists with a genre (from Last.fm top tags) for genre-grouped views.
  *

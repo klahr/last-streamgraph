@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Configuration sidebar: credentials, time resolution, stream mode, artist
  * limit, color palette, and sync controls. Pure presentational component —
@@ -405,6 +406,17 @@ export function ControlPanel({
         >
           Source code →
         </a>
+        <p className="mt-1">
+          Free software under{' '}
+          <a
+            href="https://www.gnu.org/licenses/gpl-3.0.html"
+            target="_blank"
+            rel="noreferrer"
+            className="text-slate-500 underline-offset-2 transition hover:text-slate-300 hover:underline"
+          >
+            GPL-3.0-or-later
+          </a>
+        </p>
       </footer>
     </aside>
   );

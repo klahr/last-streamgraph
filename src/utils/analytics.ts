@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Pure aggregations powering the auxiliary visualizations. Each takes the raw
  * scrobble list and reduces it to a small, view-ready shape (a 7×24 grid, a

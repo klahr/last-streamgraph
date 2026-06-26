@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Discovery timeline: when each artist first entered your library, layered over
  * a cumulative "distinct artists discovered so far" curve. Marker size encodes

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { streamScrobbles, LastFmError } from './lastfmApi';
 import type { Credentials } from '../types';

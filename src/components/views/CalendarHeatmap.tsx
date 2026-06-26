@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * GitHub-contributions-style calendar heatmap: one cell per day, columns are
  * weeks (Monday-anchored), rows are weekdays (Mon at top → Sun). Cell color

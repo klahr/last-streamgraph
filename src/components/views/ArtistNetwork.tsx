@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Artist affinity network: a force-directed graph where artists you play on the
  * same days pull together. Node size encodes total plays; node color encodes

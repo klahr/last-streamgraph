@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * A `useState`-shaped hook backed by localStorage, used to persist credentials
  * and viz config across reloads.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * App shell: owns persisted credentials + viz config, wires the data hooks to
  * the control panel and the streamgraph, and lays out the responsive chart area.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Last.fm API client: rate-limited, paginated fetching of `user.getRecentTracks`.
  *

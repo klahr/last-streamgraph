@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Pure data-processing pipeline: raw scrobbles -> a dense, stack-ready matrix.
  *

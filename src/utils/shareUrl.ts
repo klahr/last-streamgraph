@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Shareable-link support: the Last.fm username lives in the URL path
  * (e.g. `/klarre908`) so a link encodes *whose* history to show. The API key is

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// <reference lib="webworker" />
 /**
  * Web Worker that runs the auxiliary-view aggregations off the main thread.

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Derive a single genre label from an artist's Last.fm top tags.
  *

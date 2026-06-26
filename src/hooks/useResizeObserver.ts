@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Observe an element's content-box size and report it reactively, so the SVG
  * chart can rescale to its container on window/layout changes.

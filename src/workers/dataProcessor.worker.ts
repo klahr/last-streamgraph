@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /// <reference lib="webworker" />
 /**
  * Web Worker that runs the scrobble-processing pipeline off the main thread.

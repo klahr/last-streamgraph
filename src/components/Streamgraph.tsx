@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * The Streamgraph: an imperative D3 render inside React.
  *

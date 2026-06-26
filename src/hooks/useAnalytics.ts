@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Drives the auxiliary-view aggregations in a Web Worker, re-running
  * (debounced) whenever the view, filter window, top-N, resolution, dataset, or

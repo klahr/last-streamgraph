@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * Seasonal radial chart ("coxcomb" / polar bar): 12 wedges, one per month,
  * arranged clockwise from the top (Jan at 12 o'clock). Each wedge's outer

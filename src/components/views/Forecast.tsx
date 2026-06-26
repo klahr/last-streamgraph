@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
 /**
  * "Crystal ball" view: a TA-style projection of future listening.
  *
