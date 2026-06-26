@@ -3,7 +3,7 @@
  * buckets. Each artist is a line through its (bucket, rank) points with rank 1
  * pinned to the top; lines break where an artist drops out of the ranking.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { line, curveBumpX, scalePoint, scaleLinear } from 'd3';
 import { buildColorMap } from '../../utils/colors';
 import type { RankBumpProps } from './viewProps';
@@ -18,6 +18,9 @@ export function RankBump({ data, size, palette }: RankBumpProps) {
     () => buildColorMap(data.series.map((s) => s.key), palette),
     [data.series, palette],
   );
+  // Key of the hovered series; null when none. Hovering brings a line to full
+  // strength and dims the rest so it's easier to follow across crowded buckets.
+  const [hovered, setHovered] = useState<string | null>(null);
 
   if (!data.buckets.length) return <Empty />;
 
@@ -79,10 +82,20 @@ export function RankBump({ data, size, palette }: RankBumpProps) {
             </g>
           ))}
 
-          {/* series lines + points */}
-          {series.map((s) => {
+          {/* Hover lingers over the whole chart so moving between a line and
+              its label/circles doesn't flicker; leaving the chart clears it. */}
+          <g
+            onMouseLeave={() => setHovered(null)}
+          >
+            {/* series lines + points. The hovered series is rendered last so its
+              stroke sits on top of the dimmed siblings. */}
+            {[...series]
+              .sort((a, b) => (a.key === hovered ? 1 : b.key === hovered ? -1 : 0))
+              .map((s) => {
             const points: Point[] = s.ranks.map((rank, i) => ({ i, rank }));
             const color = colors[s.key] ?? '#94a3b8';
+            const isHovered = hovered === s.key;
+            const dim = hovered !== null && !isHovered;
             const path = lineGen(points) ?? '';
             // Last defined point gets the label.
             let lastDefined = -1;
@@ -93,11 +106,15 @@ export function RankBump({ data, size, palette }: RankBumpProps) {
               }
             }
             return (
-              <g key={s.key}>
-                <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinecap="round" />
+              <g
+                key={s.key}
+                onMouseEnter={() => setHovered(s.key)}
+                style={{ opacity: dim ? 0.15 : 1, transition: 'opacity 120ms' }}
+              >
+                <path d={path} fill="none" stroke={color} strokeWidth={isHovered ? 3 : 2} strokeLinecap="round" />
                 {points.map((p) =>
                   p.rank != null ? (
-                    <circle key={p.i} cx={xOf(p.i)} cy={y(p.rank)} r={3} fill={color}>
+                    <circle key={p.i} cx={xOf(p.i)} cy={y(p.rank)} r={isHovered ? 4 : 3} fill={color}>
                       <title>{`${s.key} — #${p.rank} (${buckets[p.i]!.label})`}</title>
                     </circle>
                   ) : null,
@@ -115,7 +132,8 @@ export function RankBump({ data, size, palette }: RankBumpProps) {
                 )}
               </g>
             );
-          })}
+              })}
+          </g>
         </g>
       </svg>
     </div>

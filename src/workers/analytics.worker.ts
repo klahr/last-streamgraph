@@ -124,7 +124,7 @@ function compute(request: AnalyticsRequest): unknown {
       // grouping; otherwise forecast per artist so the view is useful
       // immediately, before the rate-limited genre fetch (250ms/artist) lands.
       return forecast(slice, groupBy === 'genre' && Object.keys(genreMap).length > 0 ? genreOf : artistKey, {
-        topN: Math.min(topN, 9),
+        topN,
         horizon: FORECAST_HORIZON,
         smaWindow: 6,
         regWindow: 24,
