@@ -96,20 +96,23 @@ export function ControlPanel({
     view === 'streamgraph' || view === 'sunburst' || view === 'forecast';
   const showStreamMode = view === 'streamgraph';
   const showTopN =
-    view === 'streamgraph' ||
-    view === 'forecast' ||
-    view === 'rankbump' ||
-    view === 'network';
+    view === 'streamgraph' || view === 'rankbump' || view === 'network';
+  // The forecast view replaces the Top-N slider with a regex filter.
+  const showForecastFilter = view === 'forecast';
+  // Red border on an invalid regex; empty/valid are neutral.
+  const forecastFilterValid = (() => {
+    const f = config.forecastFilter.trim();
+    if (!f) return true;
+    try { new RegExp(f); return true; } catch { return false; }
+  })();
   // `topN` means "top N per interval" only on the streamgraph; on the aux
-  // views it's a flat card/line/node count, so label it honestly per view.
+  // views it's a flat line/node count, so label it honestly per view.
   const topNTitle =
     view === 'streamgraph'
       ? `Top ${config.topN} per interval`
-      : view === 'forecast'
-        ? `Top ${config.topN} forecast series`
-        : view === 'rankbump'
-          ? `Top ${config.topN} ranked`
-          : `Top ${config.topN} artists`;
+      : view === 'rankbump'
+        ? `Top ${config.topN} ranked`
+        : `Top ${config.topN} artists`;
 
   return (
     <aside
@@ -341,6 +344,24 @@ export function ControlPanel({
               Group the rest into “Others”
             </label>
           )}
+        </Section>
+      )}
+
+      {/* Forecast filter: a regex over series names (empty → top 12 by plays). */}
+      {showForecastFilter && (
+        <Section title="Forecast filter">
+          <input
+            type="text"
+            value={config.forecastFilter}
+            onChange={(e) => onConfigChange({ forecastFilter: e.target.value })}
+            placeholder="regex, e.g. ^metal | ^the "
+            className={`w-full rounded border bg-slate-800 px-2 py-1.5 font-mono text-sm text-slate-100 outline-none focus:border-sky-500 ${
+              forecastFilterValid ? 'border-slate-700' : 'border-red-500'
+            }`}
+          />
+          <p className="text-xs text-slate-500">
+            Empty = top 12 by plays. Matches series names case-insensitively.
+          </p>
         </Section>
       )}
 

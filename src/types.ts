@@ -59,6 +59,8 @@ export interface VizConfig {
   palette: PaletteId;
   /** Stream by individual artists or by their genre. */
   groupBy: GroupBy;
+  /** Regex filter for the forecast view (empty = top-N by play count). */
+  forecastFilter: string;
 }
 
 /** Progress of background genre enrichment (fetching artist tags). */

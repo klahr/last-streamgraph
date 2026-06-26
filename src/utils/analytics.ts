@@ -334,11 +334,21 @@ function nextMonth(ms: number): number {
  * The trend widens with the selected range: a short interval fits a reactive
  * recent trend, a large interval fits a longer (but still recent-anchored)
  * trend, so the range selection actually drives the horizon of the fit.
+ *
+ * When `opts.keys` is provided, forecast exactly those keys (ignoring
+ * `topN`); otherwise take the top-`topN` keys by total play count.
  */
 export function forecast(
   scrobbles: readonly CountableScrobble[],
   keyOf: (s: CountableScrobble) => string,
-  opts: { topN: number; horizon: number; smaWindow: number; regWindow: number },
+  opts: {
+    topN: number;
+    horizon: number;
+    smaWindow: number;
+    regWindow: number;
+    /** Optional explicit key set; overrides the top-N selection. */
+    keys?: string[];
+  },
 ): ForecastSeries[] {
   const { topN, horizon } = opts;
   const byKey = new Map<number, Map<string, number>>();
@@ -372,10 +382,12 @@ export function forecast(
   const regWindow = Math.min(opts.regWindow, Math.max(6, spanMonths));
   const smaWindow = Math.min(opts.smaWindow, Math.max(2, Math.round(spanMonths / 6)));
 
-  const topKeys = [...totals.entries()]
-    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-    .slice(0, topN)
-    .map(([k]) => k);
+  const topKeys = opts.keys
+    ? opts.keys
+    : [...totals.entries()]
+        .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+        .slice(0, topN)
+        .map(([k]) => k);
 
   return topKeys.map((key) => {
     const history = monthStarts.map((ms) => ({

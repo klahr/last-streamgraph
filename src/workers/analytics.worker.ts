@@ -34,6 +34,8 @@ export interface AnalyticsRequest {
   resolution: Resolution;
   topN: number;
   groupBy: GroupBy;
+  /** Regex filter for the forecast view (empty → top-N by play count). */
+  forecastFilter: string;
   /** Inclusive bucket-level date window (epoch ms). Omit for all-time. */
   from?: number;
   to?: number;
@@ -96,8 +98,49 @@ const genreOf = (s: CountableScrobble) =>
 const artistKey = (s: CountableScrobble) => s.artist;
 const albumKey = (s: CountableScrobble) => s.album || 'Unknown Album';
 
+/** Safety bound: a `.*`-ish filter shouldn't render hundreds of cards. */
+const FORECAST_MAX_KEYS = 100;
+/** Fallback count when the filter is empty (sane default instead of “all”). */
+const FORECAST_DEFAULT_KEYS = 12;
+
+/**
+ * Select which series keys to forecast, given a (possibly empty/invalid) regex.
+ *
+ * - Empty/whitespace filter → top {@link FORECAST_DEFAULT_KEYS} keys by total.
+ * - Valid regex → every matching key by total, capped at {@link
+ *   FORECAST_MAX_KEYS} (highest totals win).
+ * - Invalid regex → treat as no filter (same as empty) so a typo never blanks
+ *   the view.
+ */
+function forecastKeys(
+  slice: readonly CountableScrobble[],
+  keyFn: (s: CountableScrobble) => string,
+  filter: string,
+  _topN: number,
+): string[] {
+  const totals = new Map<string, number>();
+  for (const s of slice) {
+    const k = keyFn(s);
+    totals.set(k, (totals.get(k) ?? 0) + 1);
+  }
+  const ranked = [...totals.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([k]) => k);
+
+  const trimmed = filter.trim();
+  if (!trimmed) return ranked.slice(0, FORECAST_DEFAULT_KEYS);
+
+  let re: RegExp;
+  try {
+    re = new RegExp(trimmed, 'i');
+  } catch {
+    return ranked.slice(0, FORECAST_DEFAULT_KEYS);
+  }
+  return ranked.filter((k) => re.test(k)).slice(0, FORECAST_MAX_KEYS);
+}
+
 function compute(request: AnalyticsRequest): unknown {
-  const { view, resolution, topN, groupBy, from, to } = request;
+  const { view, resolution, topN, groupBy, forecastFilter, from, to } = request;
   const slice = rangedSlice(resolution, from, to);
 
   switch (view) {
@@ -120,25 +163,30 @@ function compute(request: AnalyticsRequest): unknown {
         minSharedDays: 3,
         maxEdges: 400,
       });
-    case 'forecast':
+    case 'forecast': {
       // Key by genre only when genres are loaded AND the user asked for genre
       // grouping; by album when grouping by album; otherwise per artist so the
       // view is useful immediately, before the rate-limited genre fetch
       // (250ms/artist) lands.
-      return forecast(
-        slice,
+      const keyFn =
         groupBy === 'genre' && Object.keys(genreMap).length > 0
           ? genreOf
           : groupBy === 'album'
             ? albumKey
-            : artistKey,
-        {
-          topN,
-          horizon: FORECAST_HORIZON,
-          smaWindow: 6,
-          regWindow: 24,
-        },
-      );
+            : artistKey;
+      // Regex filter (empty → top-12 by play count fallback; capped at 100 so
+      // a `.*`-ish pattern can’t render hundreds of cards). An invalid regex
+      // is treated as “no filter”. Keys are selected by total play count over
+      // the slice, then the forecast runs for exactly that set.
+      const keys = forecastKeys(slice, keyFn, forecastFilter, topN);
+      return forecast(slice, keyFn, {
+        topN,
+        horizon: FORECAST_HORIZON,
+        smaWindow: 6,
+        regWindow: 24,
+        keys,
+      });
+    }
     default:
       return null;
   }

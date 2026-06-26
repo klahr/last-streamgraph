@@ -33,6 +33,7 @@ interface Options {
   resolution: Resolution;
   topN: number;
   groupBy: GroupBy;
+  forecastFilter: string;
   from?: number;
   to?: number;
 }
@@ -84,7 +85,7 @@ export function useAnalytics(
     };
   }, []);
 
-  const { view, resolution, topN, groupBy, from, to } = opts;
+  const { view, resolution, topN, groupBy, forecastFilter, from, to } = opts;
 
   useEffect(() => {
     const client = clientRef.current;
@@ -119,7 +120,7 @@ export function useAnalytics(
       }
       if (!isAuxView) return;
       client
-        .compute({ view, resolution, topN, groupBy, from, to })
+        .compute({ view, resolution, topN, groupBy, forecastFilter, from, to })
         .then((payload) => {
           setRaw({ view, payload });
           setProcessing(false);
@@ -134,7 +135,7 @@ export function useAnalytics(
         });
     }, 120);
     return () => clearTimeout(handle);
-  }, [scrobbles, genreMap, view, resolution, topN, groupBy, from, to]);
+  }, [scrobbles, genreMap, view, resolution, topN, groupBy, forecastFilter, from, to]);
 
   const result = raw as AnalyticsViewResult | null;
   return { result, processing, error };

@@ -150,6 +150,23 @@ describe('forecast', () => {
     expect(series!.slope).toBeGreaterThan(0);
   });
 
+  it('forecasts exactly the provided keys, ignoring topN', () => {
+    // A is the top artist by plays, B is second. With keys: ['B'] only B is
+    // forecast — the regex-filter path supplies an explicit key set.
+    const s: Scrobble[] = [];
+    for (let m = 0; m < 6; m++) s.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+    for (let m = 0; m < 3; m++) s.push(mk('B', new Date(Date.UTC(2025, m, 5))));
+    const out = forecast(s, (x) => x.artist, {
+      topN: 10,
+      horizon: 2,
+      smaWindow: 3,
+      regWindow: 12,
+      keys: ['B'],
+    });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.key).toBe('B');
+  });
+
   it('widens the smoothing window for a longer selected range', () => {
     // The trend/SMA windows scale with the selected span: a short range uses a
     // tight reactive window, a long range a wider baseline. Observable via the

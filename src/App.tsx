@@ -93,6 +93,7 @@ const DEFAULT_CONFIG: VizConfig = {
   othersMode: 'group',
   palette: 'viridis',
   groupBy: 'artist',
+  forecastFilter: '',
 };
 
 const DEFAULT_CREDS: Credentials = { apiKey: '', username: '' };
@@ -228,6 +229,7 @@ export default function App() {
     resolution: config.resolution,
     topN: config.topN,
     groupBy: config.groupBy,
+    forecastFilter: config.forecastFilter,
     from,
     to,
   });
