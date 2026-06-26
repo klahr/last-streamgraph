@@ -108,7 +108,7 @@ function compute(request: AnalyticsRequest): unknown {
     case 'seasonal':
       return seasonal(slice);
     case 'discovery':
-      return discovery(slice);
+      return discovery(slice, { minPlays: 5 });
     case 'rankbump':
       return rankOverTime(slice, resolution, Math.min(topN, 15), (s) => s.artist);
     case 'sunburst':

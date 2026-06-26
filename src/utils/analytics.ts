@@ -79,22 +79,45 @@ export interface Discovery {
   count: number;
 }
 
-/** First-play time and total count per artist, ordered by first play (asc). */
-export function discovery(scrobbles: readonly CountableScrobble[]): Discovery[] {
-  const map = new Map<string, { firstMs: number; count: number }>();
+/**
+ * When each artist was *genuinely* discovered — defined as the timestamp of
+ * the scrobble at which the artist crosses `minPlays` cumulative plays, not
+ * their earliest scrobble.
+ *
+ * The first-scrobble definition produced a false-positive wall at the start
+ * of the timeline: a Last.fm signup or back-catalog import stamps thousands
+ * of artists with an early “first play” that was really just a data import, not
+ * real discovery. Requiring repeated listening before an artist counts spreads
+ * the distribution across the period you actually engaged with them. Artists
+ * who never reach the threshold (drive-by single plays, import-only entries)
+ * are dropped entirely.
+ */
+export function discovery(
+  scrobbles: readonly CountableScrobble[],
+  opts: { minPlays?: number } = {},
+): Discovery[] {
+  const minPlays = Math.max(1, opts.minPlays ?? 5);
+  // Bucket one timestamp per play, per artist. A single pass; the per-artist
+  // arrays are small even for big libraries.
+  const byArtist = new Map<string, number[]>();
   for (const s of scrobbles) {
-    const ms = s.uts * 1000;
-    const e = map.get(s.artist);
-    if (e) {
-      e.count += 1;
-      if (ms < e.firstMs) e.firstMs = ms;
-    } else {
-      map.set(s.artist, { firstMs: ms, count: 1 });
+    let arr = byArtist.get(s.artist);
+    if (!arr) {
+      arr = [];
+      byArtist.set(s.artist, arr);
     }
+    arr.push(s.uts * 1000);
   }
-  return [...map.entries()]
-    .map(([artist, v]) => ({ artist, ...v }))
-    .sort((a, b) => a.firstMs - b.firstMs);
+
+  const out: Discovery[] = [];
+  for (const [artist, times] of byArtist) {
+    if (times.length < minPlays) continue; // never reached the threshold
+    // The discovery date is the timestamp of the play that crossed the
+    // threshold (the Nth-earliest), so order matters, not just the min/max.
+    times.sort((a, b) => a - b);
+    out.push({ artist, firstMs: times[minPlays - 1]!, count: times.length });
+  }
+  return out.sort((a, b) => a.firstMs - b.firstMs);
 }
 
 /* --------------------------- Rank over time ------------------------------ */

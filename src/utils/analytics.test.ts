@@ -53,17 +53,45 @@ describe('seasonal', () => {
 });
 
 describe('discovery', () => {
-  it('reports first-play time and count per artist, ordered by first play', () => {
+  it('reports discovery time and total count per artist, ordered by discovery', () => {
+    // minPlays:1 preserves the legacy "first scrobble" semantics so this test
+    // still asserts ordering/count; the default (5) is covered below.
     const s = [
       mk('A', new Date(2020, 0, 1)),
       mk('B', new Date(2019, 0, 1)),
       mk('A', new Date(2021, 0, 1)),
     ];
-    const d = discovery(s);
+    const d = discovery(s, { minPlays: 1 });
     expect(d.map((x) => x.artist)).toEqual(['B', 'A']); // B discovered earlier
     const a = d.find((x) => x.artist === 'A')!;
     expect(a.count).toBe(2);
     expect(a.firstMs).toBe(new Date(2020, 0, 1).getTime());
+  });
+
+  it('dates discovery to the threshold-crossing play, not the first play', () => {
+    // A is played once in 2008 (a back-catalog import) then for real from 2020.
+    // Under the old first-scrobble rule A would be “discovered” in 2008 — the
+    // false-positive wall. With minPlays:2 the discovery date is the 2nd play.
+    const s = [
+      mk('A', new Date(2008, 0, 1)), // imported lone play
+      mk('A', new Date(2020, 5, 1)),
+      mk('A', new Date(2020, 6, 1)),
+    ];
+    const d = discovery(s, { minPlays: 2 });
+    const a = d.find((x) => x.artist === 'A')!;
+    expect(a.count).toBe(3);
+    expect(a.firstMs).toBe(new Date(2020, 5, 1).getTime());
+  });
+
+  it('drops artists that never cross the threshold (drive-by / import-only)', () => {
+    // B has a single backfilled play and nothing else — not a real discovery.
+    const s = [
+      mk('A', new Date(2020, 0, 1)),
+      mk('A', new Date(2020, 1, 1)),
+      mk('B', new Date(2008, 0, 1)),
+    ];
+    const d = discovery(s, { minPlays: 2 });
+    expect(d.map((x) => x.artist)).toEqual(['A']);
   });
 });
 
