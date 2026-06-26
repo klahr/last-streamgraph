@@ -332,6 +332,17 @@ export function ControlPanel({
           {unit} shown
         </p>
       </Section>
+
+      <footer className="mt-auto pt-2 text-xs text-slate-500">
+        <a
+          href="https://git.sr.ht/~klahr/last-streamgraph"
+          target="_blank"
+          rel="noreferrer"
+          className="text-slate-500 transition hover:text-slate-300"
+        >
+          Source code →
+        </a>
+      </footer>
     </aside>
   );
 }
