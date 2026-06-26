@@ -6,9 +6,8 @@
  */
 import { useMemo } from 'react';
 import { arc } from 'd3';
-import { seasonal } from '../../utils/analytics';
 import { interpolatorFor } from '../../utils/colors';
-import type { ViewProps } from './viewProps';
+import type { SeasonalProps } from './viewProps';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -19,12 +18,11 @@ const MONTH_LABELS = [
   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
 ];
 
-export function SeasonalRadial({ scrobbles, size, palette }: ViewProps) {
-  const counts = useMemo(() => seasonal(scrobbles), [scrobbles]);
+export function SeasonalRadial({ data: counts, size, palette }: SeasonalProps) {
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
 
   const max = Math.max(0, ...counts);
-  if (!scrobbles.length || max === 0) return <Empty />;
+  if (max === 0) return <Empty />;
 
   const margin = 40; // leaves room for month labels outside the wedges
   const innerR = 30;

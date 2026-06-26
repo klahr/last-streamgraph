@@ -9,9 +9,9 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { useScrobbleData } from './hooks/useScrobbleData';
 import { useProcessedData } from './hooks/useProcessedData';
 import { useGenreEnrichment } from './hooks/useGenreEnrichment';
+import { useAnalytics } from './hooks/useAnalytics';
 import { useResizeObserver } from './hooks/useResizeObserver';
 import { buildColorMap } from './utils/colors';
-import { bucketFor } from './utils/dataProcessor';
 import { usernameFromPath, syncUsernameToPath } from './utils/shareUrl';
 import { hostApiKey } from './utils/runtimeConfig';
 import { Punchcard } from './components/views/Punchcard';
@@ -22,7 +22,6 @@ import { RankBump } from './components/views/RankBump';
 import { GenreSunburst } from './components/views/GenreSunburst';
 import { ArtistNetwork } from './components/views/ArtistNetwork';
 import { Forecast } from './components/views/Forecast';
-import type { ViewProps } from './components/views/viewProps';
 import type {
   Credentials,
   RangeSelection,
@@ -186,29 +185,20 @@ export default function App() {
     [data.keys, config.palette],
   );
 
-  // Auxiliary views aggregate raw scrobbles themselves; apply the date window
-  // at BUCKET granularity (the worker filters streamgraph buckets by their
-  // start, so filtering scrobbles by their bucket start keeps the aux views in
-  // sync — a mid-month `to` shows the full last month in both, not just the
-  // streamgraph).
-  const rangedScrobbles = useMemo(() => {
-    if (from == null && to == null) return scrobbles;
-    const lo = from ?? -Infinity;
-    const hi = to ?? Infinity;
-    return scrobbles.filter((s) => {
-      const start = bucketFor(s.uts, config.resolution).start;
-      return start >= lo && start <= hi;
-    });
-  }, [scrobbles, from, to, config.resolution]);
-
-  const viewProps: ViewProps = {
-    scrobbles: rangedScrobbles,
-    size,
-    palette: config.palette,
-    genreMap: genre.genreMap,
+  // Auxiliary views compute in a Web Worker; filter at the same bucket
+  // granularity as the streamgraph so a mid-month `to` shows the full last
+  // month in both. The worker holds the full dataset and filters per-request.
+  const {
+    result: analyticsResult,
+    processing: analyticsProcessing,
+  } = useAnalytics(scrobbles, genre.genreMap, {
+    view,
     resolution: config.resolution,
     topN: config.topN,
-  };
+    groupBy: config.groupBy,
+    from,
+    to,
+  });
 
   const renderView = () => {
     switch (view) {
@@ -223,21 +213,42 @@ export default function App() {
           />
         );
       case 'punchcard':
-        return <Punchcard {...viewProps} />;
+        return analyticsResult?.view === 'punchcard' ? (
+          <Punchcard data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
       case 'calendar':
-        return <CalendarHeatmap {...viewProps} />;
+        return analyticsResult?.view === 'calendar' ? (
+          <CalendarHeatmap data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
       case 'seasonal':
-        return <SeasonalRadial {...viewProps} />;
+        return analyticsResult?.view === 'seasonal' ? (
+          <SeasonalRadial data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
       case 'discovery':
-        return <DiscoveryTimeline {...viewProps} />;
+        return analyticsResult?.view === 'discovery' ? (
+          <DiscoveryTimeline data={analyticsResult.payload} size={size} palette={config.palette} topN={config.topN} />
+        ) : null;
       case 'rankbump':
-        return <RankBump {...viewProps} />;
+        return analyticsResult?.view === 'rankbump' ? (
+          <RankBump data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
       case 'sunburst':
-        return <GenreSunburst {...viewProps} />;
+        return analyticsResult?.view === 'sunburst' ? (
+          <GenreSunburst
+            data={analyticsResult.payload}
+            size={size}
+            palette={config.palette}
+            hasGenres={Object.keys(genre.genreMap).length > 0}
+          />
+        ) : null;
       case 'network':
-        return <ArtistNetwork {...viewProps} />;
+        return analyticsResult?.view === 'network' ? (
+          <ArtistNetwork data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
       case 'forecast':
-        return <Forecast {...viewProps} />;
+        return analyticsResult?.view === 'forecast' ? (
+          <Forecast data={analyticsResult.payload} />
+        ) : null;
       default:
         return null;
     }
@@ -245,6 +256,17 @@ export default function App() {
 
   const patchConfig = (patch: Partial<VizConfig>) =>
     setConfig((prev) => ({ ...DEFAULT_CONFIG, ...prev, ...patch }));
+
+  // One honest "is the app working?" signal spanning the worker recompute,
+  // background sync, and genre tagging — surfaced as a top progress bar so
+  // filter changes and first-open never look frozen.
+  const syncing = progress.phase === 'syncing';
+  const busy = syncing || processing || analyticsProcessing || genre.progress.running;
+  const busyMessage = syncing
+    ? progress.message || 'Loading…'
+    : genre.progress.running
+      ? genre.progress.message || 'Tagging genres…'
+      : 'Updating chart…';
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -318,6 +340,8 @@ export default function App() {
           </div>
         </div>
 
+        <BusyBar active={busy} />
+
         {view === 'streamgraph' && (
           <div className="border-b border-slate-800 px-6 py-2">
             <p className="text-xs text-slate-500">
@@ -325,13 +349,21 @@ export default function App() {
               {config.resolution} · by {config.groupBy} ·{' '}
               {data.grandTotal.toLocaleString()} plays across {data.matrix.length}{' '}
               {BUCKET_NOUN[config.resolution]}
-              {processing ? ' · updating…' : ''}
             </p>
           </div>
         )}
 
-        <div ref={chartRef} className="relative min-h-0 flex-1">
-          {!hasCreds ? <EmptyState hostManagedKey={!!hostKey} /> : renderView()}
+        <div ref={chartRef} className="relative min-h-0 flex-1" aria-busy={busy}>
+          {!hasCreds ? (
+            <EmptyState hostManagedKey={!!hostKey} />
+          ) : view !== 'streamgraph' &&
+              analyticsResult?.view !== view ? (
+            <LoadingState message={busyMessage} />
+          ) : busy && scrobbles.length === 0 ? (
+            <LoadingState message={busyMessage} />
+          ) : (
+            renderView()
+          )}
         </div>
 
         {view === 'streamgraph' && data.keys.length > 0 && (
@@ -355,6 +387,34 @@ function EmptyState({ hostManagedKey }: { hostManagedKey: boolean }) {
           ? 'Type a username in the panel on the left to fetch and visualize that listening history. Everything is cached locally in your browser.'
           : 'Enter your credentials in the panel on the left to fetch and visualize your listening history. Everything is cached locally in your browser.'}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Thin indeterminate progress bar pinned under the view tabs — the single
+ * always-visible signal that the app is working (worker recompute, sync, or
+ * genre tagging). Its height is reserved even when idle so toggling it never
+ * shifts the chart.
+ */
+function BusyBar({ active }: { active: boolean }) {
+  return (
+    <div
+      className="relative h-[3px] w-full shrink-0 overflow-hidden bg-slate-800/40"
+      aria-hidden="true"
+    >
+      {active && <div className="sg-busy-segment" />}
+    </div>
+  );
+}
+
+/** Centered placeholder shown on first open while the cache hydrates / first
+ * sync runs and there is nothing to draw yet. */
+function LoadingState({ message }: { message: string }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-slate-500">
+      <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-700 border-t-sky-400" />
+      <p className="text-sm">{message}</p>
     </div>
   );
 }

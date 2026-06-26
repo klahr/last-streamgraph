@@ -5,9 +5,8 @@
  * "YYYY-MM-DD" keys from {@link dailyCounts}).
  */
 import { useMemo } from 'react';
-import { dailyCounts } from '../../utils/analytics';
 import { interpolatorFor } from '../../utils/colors';
-import type { ViewProps } from './viewProps';
+import type { CalendarProps } from './viewProps';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -32,15 +31,12 @@ interface Cell {
   count: number;
 }
 
-export function CalendarHeatmap({ scrobbles, size, palette }: ViewProps) {
-  const { byDay, max, firstMs, lastMs } = useMemo(
-    () => dailyCounts(scrobbles),
-    [scrobbles],
-  );
+export function CalendarHeatmap({ data, size, palette }: CalendarProps) {
+  const { byDay, max, firstMs, lastMs } = data;
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
 
   const layout = useMemo(() => {
-    if (!scrobbles.length || !Number.isFinite(firstMs)) {
+    if (!Number.isFinite(firstMs)) {
       return { cells: [] as Cell[], months: [] as { col: number; label: string }[], cols: 0 };
     }
     // Walk local days by calendar arithmetic (not fixed-ms steps) so DST
@@ -85,9 +81,9 @@ export function CalendarHeatmap({ scrobbles, size, palette }: ViewProps) {
     }
 
     return { cells, months, cols };
-  }, [scrobbles, byDay, firstMs, lastMs]);
+  }, [byDay, firstMs, lastMs]);
 
-  if (!scrobbles.length) return <Empty />;
+  if (!Number.isFinite(firstMs)) return <Empty />;
 
   const margin = { top: 24, right: 16, bottom: 8, left: 36 };
   const gridW = layout.cols * STEP;

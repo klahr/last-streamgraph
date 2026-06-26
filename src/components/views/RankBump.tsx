@@ -5,26 +5,21 @@
  */
 import { useMemo } from 'react';
 import { line, curveBumpX, scalePoint, scaleLinear } from 'd3';
-import { rankOverTime } from '../../utils/analytics';
 import { buildColorMap } from '../../utils/colors';
-import type { ViewProps } from './viewProps';
+import type { RankBumpProps } from './viewProps';
 
 interface Point {
   i: number;
   rank: number | null;
 }
 
-export function RankBump({ scrobbles, size, palette, resolution, topN }: ViewProps) {
-  const data = useMemo(
-    () => rankOverTime(scrobbles, resolution, Math.min(topN, 15), (s) => s.artist),
-    [scrobbles, resolution, topN],
-  );
+export function RankBump({ data, size, palette }: RankBumpProps) {
   const colors = useMemo(
     () => buildColorMap(data.series.map((s) => s.key), palette),
     [data.series, palette],
   );
 
-  if (!scrobbles.length || !data.buckets.length) return <Empty />;
+  if (!data.buckets.length) return <Empty />;
 
   const { buckets, series } = data;
   const margin = { top: 24, right: 120, bottom: 36, left: 36 };

@@ -9,7 +9,7 @@
  * UTC bucketing from {@link bucketFor} to match the streamgraph.
  */
 import { bucketFor } from './dataProcessor';
-import type { Scrobble } from '../types';
+import type { CountableScrobble } from './dataProcessor';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -22,7 +22,7 @@ export interface Punchcard {
   total: number;
 }
 
-export function punchcard(scrobbles: readonly Scrobble[]): Punchcard {
+export function punchcard(scrobbles: readonly CountableScrobble[]): Punchcard {
   const counts = Array.from({ length: 7 }, () => new Array<number>(24).fill(0));
   let max = 0;
   for (const s of scrobbles) {
@@ -44,7 +44,7 @@ export interface DailyCounts {
   lastMs: number;
 }
 
-export function dailyCounts(scrobbles: readonly Scrobble[]): DailyCounts {
+export function dailyCounts(scrobbles: readonly CountableScrobble[]): DailyCounts {
   const byDay = new Map<string, number>();
   let max = 0;
   let firstMs = Infinity;
@@ -65,7 +65,7 @@ export function dailyCounts(scrobbles: readonly Scrobble[]): DailyCounts {
 /* ----------------------------- Seasonal ---------------------------------- */
 
 /** Total plays per month-of-year (index 0 = January), summed across all years. */
-export function seasonal(scrobbles: readonly Scrobble[]): number[] {
+export function seasonal(scrobbles: readonly CountableScrobble[]): number[] {
   const months = new Array<number>(12).fill(0);
   for (const s of scrobbles) months[new Date(s.uts * 1000).getMonth()] += 1;
   return months;
@@ -80,7 +80,7 @@ export interface Discovery {
 }
 
 /** First-play time and total count per artist, ordered by first play (asc). */
-export function discovery(scrobbles: readonly Scrobble[]): Discovery[] {
+export function discovery(scrobbles: readonly CountableScrobble[]): Discovery[] {
   const map = new Map<string, { firstMs: number; count: number }>();
   for (const s of scrobbles) {
     const ms = s.uts * 1000;
@@ -115,10 +115,10 @@ export interface RankData {
  * buckets. `keyOf` maps a scrobble to its series key (artist / genre / …).
  */
 export function rankOverTime(
-  scrobbles: readonly Scrobble[],
+  scrobbles: readonly CountableScrobble[],
   resolution: 'weekly' | 'monthly' | 'yearly',
   topN: number,
-  keyOf: (s: Scrobble) => string,
+  keyOf: (s: CountableScrobble) => string,
 ): RankData {
   const bucketRows = new Map<number, { label: string; counts: Map<string, number> }>();
   const totals = new Map<string, number>();
@@ -174,7 +174,7 @@ export interface HierNode {
 
 /** genre → artist hierarchy for a sunburst/treemap (top genres, top artists each). */
 export function genreHierarchy(
-  scrobbles: readonly Scrobble[],
+  scrobbles: readonly CountableScrobble[],
   genreMap: Record<string, string>,
   opts: { topGenres: number; topArtistsPerGenre: number },
 ): HierNode {
@@ -205,6 +205,83 @@ export function genreHierarchy(
   };
 }
 
+/* ------------------------- Artist co-play graph ------------------------- */
+
+export interface NetworkNode {
+  artist: string;
+  count: number;
+  genre: string | null;
+}
+export interface NetworkLink {
+  source: string;
+  target: string;
+  weight: number;
+}
+export interface NetworkData {
+  nodes: NetworkNode[];
+  links: NetworkLink[];
+}
+
+/** Top-N artist nodes and their co-play edges (shared local-day weight). */
+export function networkGraph(
+  scrobbles: readonly CountableScrobble[],
+  genreMap: Record<string, string>,
+  opts: { topN: number; maxNodes: number; minSharedDays: number; maxEdges: number },
+): NetworkData {
+  if (!scrobbles.length) return { nodes: [], links: [] };
+
+  // Top-N artists by play count.
+  const counts = new Map<string, number>();
+  for (const s of scrobbles) counts.set(s.artist, (counts.get(s.artist) ?? 0) + 1);
+
+  const top = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, Math.min(opts.topN, opts.maxNodes));
+  const topSet = new Set(top.map(([artist]) => artist));
+
+  const nodes: NetworkNode[] = top.map(([artist, count]) => ({
+    artist,
+    count,
+    genre: genreMap[artist.toLowerCase()] ?? null,
+  }));
+
+  // Co-play on the same local day: artists present per day, then pair weights.
+  const dayArtists = new Map<string, Set<string>>();
+  for (const s of scrobbles) {
+    if (!topSet.has(s.artist)) continue;
+    const d = new Date(s.uts * 1000);
+    const key = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    let set = dayArtists.get(key);
+    if (!set) {
+      set = new Set();
+      dayArtists.set(key, set);
+    }
+    set.add(s.artist);
+  }
+
+  const pairWeights = new Map<string, number>();
+  for (const set of dayArtists.values()) {
+    const present = [...set].sort();
+    for (let i = 0; i < present.length; i++) {
+      for (let j = i + 1; j < present.length; j++) {
+        const k = `${present[i]} ${present[j]}`;
+        pairWeights.set(k, (pairWeights.get(k) ?? 0) + 1);
+      }
+    }
+  }
+
+  const links: NetworkLink[] = [...pairWeights.entries()]
+    .filter(([, w]) => w >= opts.minSharedDays)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, opts.maxEdges)
+    .map(([k, weight]) => {
+      const [source, target] = k.split(' ');
+      return { source: source!, target: target!, weight };
+    });
+
+  return { nodes, links };
+}
+
 /* ------------------------------ Forecast --------------------------------- */
 
 export interface ForecastSeries {
@@ -231,8 +308,8 @@ function nextMonth(ms: number): number {
  * ahead with a residual-based uncertainty band. Naive by design.
  */
 export function forecast(
-  scrobbles: readonly Scrobble[],
-  keyOf: (s: Scrobble) => string,
+  scrobbles: readonly CountableScrobble[],
+  keyOf: (s: CountableScrobble) => string,
   opts: { topN: number; horizon: number; smaWindow: number; regWindow: number },
 ): ForecastSeries[] {
   const { topN, horizon, smaWindow, regWindow } = opts;

@@ -3,19 +3,18 @@
  * Cell color encodes play count for that (day, hour) slot.
  */
 import { useMemo } from 'react';
-import { punchcard } from '../../utils/analytics';
 import { interpolatorFor } from '../../utils/colors';
-import type { ViewProps } from './viewProps';
+import type { PunchcardProps } from './viewProps';
 
 // Display rows Monday-first; analytics indexes by getDay (0 = Sunday).
 const ROW_DAYS = [1, 2, 3, 4, 5, 6, 0];
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-export function Punchcard({ scrobbles, size, palette }: ViewProps) {
-  const { counts, max } = useMemo(() => punchcard(scrobbles), [scrobbles]);
+export function Punchcard({ data, size, palette }: PunchcardProps) {
+  const { counts, max } = data;
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
 
-  if (!scrobbles.length) return <Empty />;
+  if (data.total === 0) return <Empty />;
 
   const margin = { top: 24, right: 16, bottom: 16, left: 44 };
   const w = Math.max(0, size.width - margin.left - margin.right);

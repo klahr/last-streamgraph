@@ -7,29 +7,16 @@
  * with a residual-based uncertainty band. It's a naive extrapolation, not a
  * real forecast — listening isn't a stock — so treat it as for-fun.
  */
-import { useMemo } from 'react';
 import { area, curveMonotoneX, line, scaleLinear } from 'd3';
-import { forecast, type ForecastSeries } from '../../utils/analytics';
-import type { ViewProps } from './viewProps';
+import type { ForecastProps } from './viewProps';
+import type { ForecastSeries } from '../../utils/analytics';
 
-const HORIZON = 6;
 const CARD_W = 280;
 const CARD_H = 150;
 const M = { top: 22, right: 10, bottom: 18, left: 30 };
 
-export function Forecast({ scrobbles, genreMap, topN }: ViewProps) {
-  const byGenre = Object.keys(genreMap).length > 0;
-  const series = useMemo(
-    () =>
-      forecast(
-        scrobbles,
-        byGenre ? (s) => genreMap[s.artist.toLowerCase()] ?? 'Unknown' : (s) => s.artist,
-        { topN: Math.min(topN, 9), horizon: HORIZON, smaWindow: 3, regWindow: 12 },
-      ),
-    [scrobbles, genreMap, byGenre, topN],
-  );
-
-  if (!scrobbles.length) {
+export function Forecast({ data: series }: ForecastProps) {
+  if (!series.length) {
     return (
       <div className="flex h-full w-full items-center justify-center text-slate-500">
         No scrobbles in range yet.
@@ -40,9 +27,8 @@ export function Forecast({ scrobbles, genreMap, topN }: ViewProps) {
   return (
     <div className="h-full w-full overflow-auto p-4">
       <p className="mb-3 text-xs text-slate-500">
-        Projecting the next {HORIZON} months by {byGenre ? 'genre' : 'artist'} —
-        moving average + least-squares trend with an uncertainty band. A naive
-        extrapolation, for fun.
+        Projecting the next 6 months — moving average + least-squares trend with
+        an uncertainty band. A naive extrapolation, for fun.
       </p>
       <div className="flex flex-wrap gap-3">
         {series.map((s) => (

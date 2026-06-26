@@ -51,6 +51,15 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
       abortRef.current = ac;
 
       try {
+        // Mark syncing immediately so first-open (auto-hydrate) never sits on
+        // an idle-looking chart while the cache load is still in flight.
+        setProgress({
+          phase: 'syncing',
+          page: 0,
+          totalPages: 0,
+          fetched: 0,
+          message: 'Loading…',
+        });
         if (full) {
           await clearUser(user); // also resets sync watermarks
           setScrobbles([]);

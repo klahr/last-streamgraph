@@ -6,20 +6,13 @@
  */
 import { useMemo } from 'react';
 import { arc, hierarchy, partition } from 'd3';
-import { genreHierarchy } from '../../utils/analytics';
-import type { HierNode } from '../../utils/analytics';
 import { interpolatorFor } from '../../utils/colors';
-import type { ViewProps } from './viewProps';
+import type { SunburstProps } from './viewProps';
 
-export function GenreSunburst({ scrobbles, size, palette, genreMap }: ViewProps) {
-  const root = useMemo(
-    () => genreHierarchy(scrobbles, genreMap, { topGenres: 12, topArtistsPerGenre: 12 }),
-    [scrobbles, genreMap],
-  );
+export function GenreSunburst({ data: root, size, palette, hasGenres }: SunburstProps) {
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
 
-  if (!scrobbles.length) return <Message text="No scrobbles in range yet." />;
-  if (!Object.keys(genreMap).length || !root.children?.length) {
+  if (!hasGenres || !root.children?.length) {
     return <Message text="Switch Group-by to Genres (and let genres finish fetching) to see this." />;
   }
 
@@ -27,7 +20,7 @@ export function GenreSunburst({ scrobbles, size, palette, genreMap }: ViewProps)
   const radius = Math.max(0, Math.min(size.width, size.height) / 2 - margin);
 
   // partition() returns a rectangular node carrying x0/x1/y0/y1.
-  const layout = partition<HierNode>().size([2 * Math.PI, radius])(
+  const layout = partition<typeof root>().size([2 * Math.PI, radius])(
     hierarchy(root)
       .sum((d) => d.value ?? 0)
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0)),

@@ -14,15 +14,13 @@ import {
   select,
   timeFormat,
 } from 'd3';
-import { discovery } from '../../utils/analytics';
 import { interpolatorFor } from '../../utils/colors';
-import type { ViewProps } from './viewProps';
+import type { DiscoveryProps } from './viewProps';
 
 const MAX_MARKERS = 40;
 const MAX_LABELS = 15;
 
-export function DiscoveryTimeline({ scrobbles, size, palette, topN }: ViewProps) {
-  const disc = useMemo(() => discovery(scrobbles), [scrobbles]);
+export function DiscoveryTimeline({ data: disc, size, palette, topN }: DiscoveryProps) {
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
   const axisRef = useRef<SVGGElement | null>(null);
 
@@ -82,7 +80,7 @@ export function DiscoveryTimeline({ scrobbles, size, palette, topN }: ViewProps)
     };
   }, [x, fmtTick]);
 
-  if (!scrobbles.length || !total) return <Empty />;
+  if (!total) return <Empty />;
 
   const areaPath =
     d3area<{ ms: number; n: number }>()
