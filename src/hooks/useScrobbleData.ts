@@ -174,6 +174,10 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
       setProgress(IDLE);
       return;
     }
+    // A username change between two valid users (A → B) leaves A's scrobbles
+    // in state until B's cache hydrates; clear immediately so B never briefly
+    // renders A's chart.
+    setScrobbles([]);
     void runSync(false);
     return () => abortRef.current?.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps

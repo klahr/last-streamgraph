@@ -126,9 +126,12 @@ function normalize(raw: RawTrack, user: string): Scrobble | null {
   if (raw['@attr']?.nowplaying === 'true' || !raw.date?.uts) return null;
   const uts = Number(raw.date.uts);
   if (!Number.isFinite(uts)) return null;
-  const artist = raw.artist?.['#text'] ?? 'Unknown Artist';
-  const track = raw.name ?? 'Unknown Track';
-  const album = raw.album?.['#text'] ?? '';
+  // Use `||` (not `??`): Last.fm sometimes returns an empty string, which is
+  // not nullish and would otherwise slip through as an empty artist/track —
+  // colliding the composite id for every empty-artist scrobble in the same second.
+  const artist = raw.artist?.['#text'] || 'Unknown Artist';
+  const track = raw.name || 'Unknown Track';
+  const album = raw.album?.['#text'] || '';
   return { id: scrobbleId(user, uts, artist, track), user, artist, album, track, uts };
 }
 
@@ -199,9 +202,10 @@ export async function fetchArtistTopTags(
     data = await fetchPage(tagsUrl(creds, artist), signal);
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;
-    // Unknown artist (error 6) etc. — treat as "no tags", don't abort the run.
-    if (err instanceof LastFmError) return [];
-    throw err;
+    // Unknown artist (error 6), transient network failures after retries, … —
+    // any non-abort is "no tags for this artist". Returning [] keeps the
+    // enrichment run going instead of aborting everyone on one flaky artist.
+    return [];
   }
   const raw = data.toptags?.tag;
   const list: RawTag[] = Array.isArray(raw) ? raw : raw ? [raw] : [];

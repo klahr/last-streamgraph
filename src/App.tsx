@@ -11,6 +11,7 @@ import { useProcessedData } from './hooks/useProcessedData';
 import { useGenreEnrichment } from './hooks/useGenreEnrichment';
 import { useResizeObserver } from './hooks/useResizeObserver';
 import { buildColorMap } from './utils/colors';
+import { bucketFor } from './utils/dataProcessor';
 import { usernameFromPath, syncUsernameToPath } from './utils/shareUrl';
 import { hostApiKey } from './utils/runtimeConfig';
 import { Punchcard } from './components/views/Punchcard';
@@ -186,16 +187,19 @@ export default function App() {
   );
 
   // Auxiliary views aggregate raw scrobbles themselves; apply the date window
-  // (scrobble-level) so they stay consistent with the streamgraph's range.
+  // at BUCKET granularity (the worker filters streamgraph buckets by their
+  // start, so filtering scrobbles by their bucket start keeps the aux views in
+  // sync — a mid-month `to` shows the full last month in both, not just the
+  // streamgraph).
   const rangedScrobbles = useMemo(() => {
     if (from == null && to == null) return scrobbles;
     const lo = from ?? -Infinity;
     const hi = to ?? Infinity;
     return scrobbles.filter((s) => {
-      const ms = s.uts * 1000;
-      return ms >= lo && ms <= hi;
+      const start = bucketFor(s.uts, config.resolution).start;
+      return start >= lo && start <= hi;
     });
-  }, [scrobbles, from, to]);
+  }, [scrobbles, from, to, config.resolution]);
 
   const viewProps: ViewProps = {
     scrobbles: rangedScrobbles,

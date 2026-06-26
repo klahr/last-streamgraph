@@ -144,4 +144,25 @@ describe('streamScrobbles', () => {
     expect(all).toHaveLength(1);
     expect(all[0].artist).toBe('Solo');
   });
+
+  it('falls back when artist/track text is an empty string (not nullish)', async () => {
+    // `\u0023text` = '#text'. An empty string is not nullish, so `??` would
+    // keep it; the composite id would collide across empty-artist scrobbles.
+    const emptyArtist = { artist: { '#text': '' }, name: '', date: { uts: '300' } };
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      page([emptyArtist], { page: 1, totalPages: 1, total: 1 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const all = [];
+    for await (const b of streamScrobbles(creds)) all.push(...b.scrobbles);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({
+      artist: 'Unknown Artist',
+      track: 'Unknown Track',
+      album: '',
+    });
+    // Id must carry the fallback name, not the empty string.
+    expect(all[0].id).toBe('tester::300::Unknown Artist::Unknown Track');
+  });
 });

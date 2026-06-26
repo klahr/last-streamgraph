@@ -43,27 +43,34 @@ export function CalendarHeatmap({ scrobbles, size, palette }: ViewProps) {
     if (!scrobbles.length || !Number.isFinite(firstMs)) {
       return { cells: [] as Cell[], months: [] as { col: number; label: string }[], cols: 0 };
     }
-    // First column is anchored to the Monday on/before the first day.
-    const first = new Date(firstMs);
-    const colStart = new Date(
-      first.getFullYear(),
-      first.getMonth(),
-      first.getDate() - mondayRow(first.getDay()),
-    ).getTime();
-
+    // Walk local days by calendar arithmetic (not fixed-ms steps) so DST
+    // transitions (23h/25h days) can't shift a date into the wrong column or
+    // drop a day. Columns are weeks (Monday-anchored) counted from the first.
     const cells: Cell[] = [];
     const months: { col: number; label: string }[] = [];
     let lastLabeledMonth = -1;
     let cols = 0;
 
-    for (let ms = firstMs; ms <= lastMs; ms += DAY_MS) {
-      const d = new Date(ms);
-      const y = d.getFullYear();
-      const m = d.getMonth();
-      const day = d.getDate();
+    const first = new Date(firstMs);
+    const firstMidnight = new Date(
+      first.getFullYear(),
+      first.getMonth(),
+      first.getDate(),
+    ).getTime();
+    const firstColShift = mondayRow(first.getDay());
+
+    let cursor = new Date(firstMidnight);
+    while (cursor.getTime() <= lastMs) {
+      const y = cursor.getFullYear();
+      const m = cursor.getMonth();
+      const day = cursor.getDate();
       const key = `${y}-${pad2(m + 1)}-${pad2(day)}`;
-      const col = Math.floor((ms - colStart) / (7 * DAY_MS));
-      const row = mondayRow(d.getDay());
+      // Days elapsed since the first day; rounds to absorb DST's ±1h drift.
+      const offsetDays = Math.round(
+        (cursor.getTime() - firstMidnight) / DAY_MS,
+      );
+      const col = Math.floor((offsetDays + firstColShift) / 7);
+      const row = mondayRow(cursor.getDay());
       if (col + 1 > cols) cols = col + 1;
 
       // Month label at the first cell of each new month.
@@ -74,6 +81,7 @@ export function CalendarHeatmap({ scrobbles, size, palette }: ViewProps) {
       }
 
       cells.push({ col, row, key, count: byDay.get(key) ?? 0 });
+      cursor = new Date(y, m, day + 1);
     }
 
     return { cells, months, cols };

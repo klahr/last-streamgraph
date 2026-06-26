@@ -39,17 +39,29 @@ export function useProcessedData(
   const [data, setData] = useState<ProcessedData>(EMPTY);
   const [processing, setProcessing] = useState(false);
 
-  // Lazily create one worker for the component's lifetime.
-  if (!clientRef.current) clientRef.current = new ProcessClient();
+  // Create the worker in an effect (not via lazy ref init) and tear it down on
+  // cleanup, nulling the ref. React's StrictMode double-mounts effects in dev,
+  // so the first mount's cleanup terminates that worker and the second mount
+  // creates a fresh one. Without nulling the ref, the second mount would keep
+  // posting into the terminated worker and never receive a result (processing
+  // would spin forever). Prod is unaffected, but dev must work too.
   useEffect(() => {
-    const client = clientRef.current;
-    return () => client?.terminate();
+    const client = new ProcessClient();
+    clientRef.current = client;
+    return () => {
+      client.terminate();
+      clientRef.current = null;
+      // A recreated client has an empty worker dataset; force a re-upload.
+      sentDataRef.current = null;
+      sentGenresRef.current = null;
+    };
   }, []);
 
   const { resolution, topN, othersMode, groupBy, genreMap, from, to } = opts;
 
   useEffect(() => {
-    const client = clientRef.current!;
+    const client = clientRef.current;
+    if (!client) return;
     setProcessing(true);
     const handle = setTimeout(() => {
       // Re-upload data / genres only when their reference actually changed.
