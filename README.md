@@ -16,54 +16,36 @@ Last Streamgraph finds those patterns in your own history and draws them.
 
 Once you've connected your account, you can explore your music in lots of ways:
 
-### The streamgraph
-
-The main view: a smooth, rippling river where each colored band is an artist (or
-a genre, or an album). The wider the band, the more you listened. You can follow
-a favorite swelling and shrinking across the years, switch between raw play counts
-and percentages, and zoom into any stretch of time.
-
-### When you listen
-
-A heatmap of your week — days down the side, hours across the top. The hotter the
-square, the more you were listening then. It's a surprisingly personal portrait:
-late-night listener? Sunday-afternoon binger? It's all here.
-
-![When you listen, by day and hour](docs/punchcard.png)
-
-### A calendar of every day
-
-Every day you've ever scrobbled, laid out like a calendar and shaded by how much
-you listened — an easy way to spot streaks, quiet spells, and your busiest months.
-
-![A calendar of your listening](docs/calendar.png)
-
-### Your genres at a glance
-
-A colorful sunburst breaking your library into genres, and each genre into its
-top artists — so you can finally see just how much black metal, soundtrack, or pop
-you really listen to.
-
-![Genres and their artists as a sunburst](docs/sunburst.png)
-
-### A peek at the future 🔮
-
-For fun, the forecast view looks at the recent trend of each genre and sketches
-where it *might* be heading over the next few months — rising, falling, or holding
-steady. (It's a playful guess, not a real prediction — your next obsession is
-always a surprise.)
-
-![A playful forecast of your listening](docs/forecast.png)
-
-### …and more
-
-There's also a **seasonal** view (which months of the year you listen most), a
-**discovery** timeline (when you found each artist), a **rank** chart (how your
-top artists rise and fall against each other), and an **affinity network** that
-clusters the artists you tend to play together.
+- **Streamgraph** — a smooth, rippling river where each colored band is an artist
+  (or a genre, or an album). The wider the band, the more you listened. Follow a
+  favorite swelling and shrinking across the years, switch between raw play counts
+  and percentages, and zoom into any stretch of time.
+- **When you listen** — a heatmap of your week, days down the side and hours across
+  the top. The hotter the square, the more you were listening then. A surprisingly
+  personal portrait: late-night listener? Sunday-afternoon binger?
+- **Calendar** — every day you've ever scrobbled, laid out like a calendar and
+  shaded by how much you listened — an easy way to spot streaks, quiet spells, and
+  your busiest months.
+- **Sunburst** — your library broken into genres, and each genre into its top
+  artists, so you can finally see just how much black metal, soundtrack, or pop you
+  really listen to.
+- **Forecast** 🔮 — for fun, it looks at the recent trend of each genre and
+  sketches where it *might* be heading over the next few months — rising, falling,
+  or holding steady. (A playful guess, not a real prediction — your next obsession
+  is always a surprise.)
+- **Seasonal** — which months of the year you listen most.
+- **Discovery** — a timeline of when you found each artist.
+- **Rank** — how your top artists rise and fall against each other.
+- **Affinity network** — clusters the artists you tend to play together.
 
 You can recolor everything with a handful of palettes, and your whole history is
 saved in your browser so it loads instantly next time.
+
+## Gallery
+
+![Seasonal listening — which months of the year you listen most](docs/seasonal.png)
+![The discovery timeline — when you found each artist](docs/discovery.png)
+![A playful forecast of each genre's trend](docs/forecast.png)
 
 ## Your data stays yours
 
