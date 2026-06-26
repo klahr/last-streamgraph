@@ -55,6 +55,7 @@ export function useGenreEnrichment(
   const [genreMap, setGenreMap] = useState<Record<string, string>>({});
   const [progress, setProgress] = useState<GenreProgress>(IDLE);
   const abortRef = useRef<AbortController | null>(null);
+  const runningRef = useRef(false);
 
   // Distinct artists with a representative (original-case) name, by play count.
   const artists = useMemo(() => {
@@ -67,6 +68,13 @@ export function useGenreEnrichment(
     }
     return [...counts.values()].sort((a, b) => b.count - a.count);
   }, [scrobbles]);
+
+  // A live handle on the latest artist list so an in-flight enrichment can pick
+  // up artists that arrive from an ongoing sync — without `artists` being an
+  // `enrich` dependency, which would otherwise abort and restart on every sync
+  // batch (new scrobbles → new `artists` array → new `enrich` → effect re-run).
+  const artistsRef = useRef(artists);
+  artistsRef.current = artists;
 
   // Hydrate cached genres once.
   useEffect(() => {
@@ -85,20 +93,14 @@ export function useGenreEnrichment(
   );
 
   const enrich = useCallback(async () => {
-    if (!creds) return;
+    // A run is already in progress and absorbs new artists itself; don't abort
+    // and restart it (that would reset progress on every sync batch).
+    if (!creds || runningRef.current) return;
+    runningRef.current = true;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
 
-    const cached = await getAllArtistGenres();
-    setGenreMap(cached);
-    const todo = artists.filter((a) => !(a.name.toLowerCase() in cached));
-    if (todo.length === 0) {
-      setProgress({ running: false, done: 0, total: 0, message: 'Genres up to date.' });
-      return;
-    }
-
-    setProgress({ running: true, done: 0, total: todo.length, message: `Tagging artists 0 of ${todo.length}…` });
     let buffer: ArtistGenre[] = [];
     let done = 0;
 
@@ -115,27 +117,55 @@ export function useGenreEnrichment(
     };
 
     try {
-      for (const a of todo) {
-        const tags = await fetchArtistTopTags(creds, a.name, ac.signal);
-        buffer.push({ artist: a.name.toLowerCase(), genre: pickGenre(tags) });
-        done += 1;
-        if (buffer.length >= FLUSH_EVERY) await flush();
-        setProgress({ running: true, done, total: todo.length, message: `Tagging artists ${done} of ${todo.length}…` });
-        await sleep(RATE_LIMIT_MS, ac.signal);
+      const cached = await getAllArtistGenres();
+      setGenreMap(cached);
+      const have = new Set(Object.keys(cached));
+
+      // Loop so artists that stream in from an in-progress sync get tagged in
+      // the same run, rather than triggering an abort/restart.
+      for (;;) {
+        const todo = artistsRef.current.filter(
+          (a) => !have.has(a.name.toLowerCase()),
+        );
+        if (todo.length === 0) break;
+        const total = done + todo.length;
+        setProgress({ running: true, done, total, message: `Tagging artists ${done} of ${total}…` });
+        for (const a of todo) {
+          const key = a.name.toLowerCase();
+          if (have.has(key)) continue; // raced in via an earlier batch
+          const tags = await fetchArtistTopTags(creds, a.name, ac.signal);
+          buffer.push({ artist: key, genre: pickGenre(tags) });
+          have.add(key);
+          done += 1;
+          if (buffer.length >= FLUSH_EVERY) await flush();
+          setProgress({ running: true, done, total, message: `Tagging artists ${done} of ${total}…` });
+          await sleep(RATE_LIMIT_MS, ac.signal);
+        }
+        await flush();
       }
       await flush();
-      setProgress({ running: false, done, total: todo.length, message: `Tagged ${done} artist${done === 1 ? '' : 's'}.` });
+      setProgress({ running: false, done, total: done, message: done > 0 ? `Tagged ${done} artist${done === 1 ? '' : 's'}.` : 'Genres up to date.' });
     } catch (err) {
       await flush(); // keep what we fetched before the abort/error
       if (err instanceof DOMException && err.name === 'AbortError') return;
-      setProgress({ running: false, done, total: todo.length, message: err instanceof Error ? err.message : 'Genre fetch failed.' });
+      setProgress({ running: false, done, total: done, message: err instanceof Error ? err.message : 'Genre fetch failed.' });
+    } finally {
+      runningRef.current = false;
     }
-  }, [creds, artists]);
+  }, [creds]);
 
-  // Auto-run while genre mode is active; abort when it's switched off / unmounts.
+  // Start enrichment when genre mode turns on (and stop it when switched off or
+  // unmounted). Only `active`/`creds` own the abort, so sync churn can't restart
+  // a run mid-flight.
   useEffect(() => {
-    if (active && creds && artists.length > 0) void enrich();
+    if (active && creds) void enrich();
     return () => abortRef.current?.abort();
+  }, [active, creds, enrich]);
+
+  // Resume for artists that arrived after a run finished (e.g. a sync batch that
+  // landed once tagging was already idle). No cleanup here: this must not abort.
+  useEffect(() => {
+    if (active && creds && artists.length > 0 && !runningRef.current) void enrich();
   }, [active, creds, artists, enrich]);
 
   return { genreMap, progress, missingCount, enrich };
