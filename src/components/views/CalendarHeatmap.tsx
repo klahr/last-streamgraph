@@ -29,6 +29,15 @@ const STRIP_PITCH = STRIP_CELL_H + YEAR_GAP + YEAR_HEADER;
 /** Mon=0 … Sun=6 from a JS getDay() (0=Sun). */
 const mondayRow = (jsDay: number) => (jsDay + 6) % 7;
 
+/**
+ * How many days Jan 1 must shift back to reach its week's Monday, for a
+ * Monday-anchored week grid where Jan 1 lands at column 0. Takes the LOCAL
+ * Jan 1 weekday — using a `Date.UTC` instant here would return the previous
+ * calendar day west of UTC and shift every week column left by one.
+ */
+export const weekColumnShift = (localJan1Weekday: number) =>
+  mondayRow(localJan1Weekday);
+
 interface Cell {
   col: number;
   row: number;
@@ -82,9 +91,12 @@ export function CalendarHeatmap({ data, size, palette }: CalendarProps) {
       const key = `${y}-${pad2(m + 1)}-${pad2(day)}`;
       // Week column *within this year*: count weeks from the Monday of the
       // week containing Jan 1, so Jan 1 lands at column 0 and a new year's
-      // strip always starts flush at the left.
+      // strip always starts flush at the left. Use the LOCAL Jan 1 (not a
+      // `Date.UTC` instant) for the weekday: `getDay()` on a UTC midnight is
+      // the previous calendar day west of UTC, which shifts the whole year
+      // left by one column in those timezones (every week misaligned).
       const jan1Midnight = Date.UTC(y, 0, 1);
-      const yearFirstColShift = mondayRow(new Date(jan1Midnight).getDay());
+      const yearFirstColShift = weekColumnShift(new Date(y, 0, 1).getDay());
       const offsetDays = Math.round((cursor.getTime() - jan1Midnight) / DAY_MS);
       const col = Math.floor((offsetDays + yearFirstColShift) / 7);
       const row = mondayRow(cursor.getDay());

@@ -173,9 +173,11 @@ export function useScrobbleData(creds: Credentials | null): ScrobbleData {
         if (err instanceof DOMException && err.name === 'AbortError') {
           // An abort (credential change / unmount) must not leave the progress
           // stuck on 'syncing' — that would pin the busy indicator on after
-          // work has actually stopped. Reset to idle; a fresh run sets
-          // 'syncing' again immediately.
-          setProgress(IDLE);
+          // work has actually stopped. But only reset to idle when this run
+          // is still the active one: a newer run that superseded us has already
+          // set 'syncing' itself, and our AbortError catch fires on a later
+          // microtask — blindly resetting to IDLE here would clobber that.
+          if (abortRef.current === ac) setProgress(IDLE);
           return;
         }
         const message =
