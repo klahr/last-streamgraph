@@ -43,6 +43,7 @@ export interface ArtistGenre {
 }
 
 export type PaletteId =
+  | 'blue'
   | 'warm'
   | 'cool'
   | 'viridis'
