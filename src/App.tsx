@@ -42,6 +42,20 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'network', label: 'Network' },
 ];
 
+/** One-line, user-facing summary of each view. Mirrors each view's doc comment
+ * so the in-app copy and the code documentation can't drift. */
+const VIEW_DESCRIPTIONS: Record<View, string> = {
+  streamgraph: 'Listening volume over time as flowing, stacked streams — one per top artist/genre/album.',
+  forecast: 'A naive extrapolation of your next 6 months per top series — moving average + least-squares trend. For fun, not prophecy.',
+  punchcard: 'When you listen by weekday × hour (your local time). Brighter cells = more plays in that slot.',
+  calendar: 'A GitHub-style daily heatmap of plays, one cell per day, weeks as columns.',
+  seasonal: 'Total plays per calendar month, summed across years, as 12 wedges sized by listening.',
+  discovery: 'When each artist first entered your library, over a cumulative distinct-artists curve.',
+  rankbump: 'How the top artists\' ranking shifts across time buckets — rank 1 at the top, lines break on drop-out.',
+  sunburst: 'A two-ring breakdown: top genres inner, each genre\'s top artists outer.',
+  network: 'Artists you play on the same days pull together in a force-directed graph; edges = shared listening days.',
+};
+
 const BUCKET_NOUN: Record<Resolution, string> = {
   weekly: 'weeks',
   monthly: 'months',
@@ -371,6 +385,10 @@ export default function App() {
         </div>
 
         <BusyBar active={busy} />
+
+        <div className="border-b border-slate-800 px-6 py-1.5">
+          <p className="text-xs text-slate-500">{VIEW_DESCRIPTIONS[view]}</p>
+        </div>
 
         {view === 'streamgraph' && (
           <div className="border-b border-slate-800 px-6 py-2">
