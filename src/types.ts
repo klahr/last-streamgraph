@@ -26,6 +26,12 @@ export type GroupBy = 'artist' | 'genre' | 'album';
 /** Which visualization is shown. */
 export type View =
   | 'streamgraph'
+  | 'obsessions'
+  | 'novelty'
+  | 'tenure'
+  | 'genrehours'
+  | 'albumdepth'
+  | 'sessions'
   | 'punchcard'
   | 'calendar'
   | 'seasonal'
@@ -63,6 +69,12 @@ export interface VizConfig {
   groupBy: GroupBy;
   /** Regex filter for the forecast view (empty = top-N by play count). */
   forecastFilter: string;
+  /**
+   * Silence (in minutes) that separates two listening sessions. Exposed as a
+   * knob because scrobbles carry no track durations, so the boundary is a
+   * judgement call rather than a fact.
+   */
+  sessionGapMin: number;
 }
 
 /** Progress of background genre enrichment (fetching artist tags). */
@@ -76,7 +88,13 @@ export interface GenreProgress {
 }
 
 /** Quick date-window presets plus a custom slider-defined window. */
-export type RangePreset = 'all' | 'month' | 'year' | '5years' | 'custom';
+export type RangePreset =
+  | 'all'
+  | 'month'
+  | 'year'
+  | 'thisyear'
+  | '5years'
+  | 'custom';
 
 /** Persisted date-range selection. Custom bounds are epoch ms. */
 export interface RangeSelection {

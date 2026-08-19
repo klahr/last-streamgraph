@@ -9,8 +9,9 @@
  * (that's "your clock" — when you actually listened). Bucketed series reuse the
  * UTC bucketing from {@link bucketFor} to match the streamgraph.
  */
-import { bucketFor } from './dataProcessor';
+import { bucketFor, labelForStart, nextBucketStart } from './dataProcessor';
 import type { CountableScrobble } from './dataProcessor';
+import type { Resolution } from '../types';
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
@@ -442,4 +443,582 @@ export function forecast(
 
     return { key, total: totals.get(key) ?? 0, history, sma, projection, slope, trend };
   });
+}
+
+/* ------------------------------ Obsessions ------------------------------- */
+
+/**
+ * Composite-key separator. Artist/track/album names can't contain a control
+ * character, so joining on one keeps names with separators intact when the key
+ * is split back apart (same reason as {@link networkGraph}'s pair key).
+ */
+const SEP = '\u0000';
+
+/** One track and the shape of its most intense listening burst. */
+export interface Obsession {
+  track: string;
+  artist: string;
+  /** Plays in range. */
+  total: number;
+  /** Most plays falling inside any `windowDays`-wide sliding window. */
+  peak: number;
+  /** Start of that peak window (epoch ms). */
+  peakMs: number;
+  /** peak / total. 1.0 = every play happened inside one window. */
+  concentration: number;
+  /** peak × concentration. Ranks bursts that are both big *and* tight. */
+  score: number;
+  /** Plays per week, aligned index-for-index to {@link ObsessionData.weeks}. */
+  series: number[];
+}
+
+export interface ObsessionData {
+  /** Shared weekly grid, so every sparkline reads against one timeline. */
+  weeks: number[];
+  tracks: Obsession[];
+}
+
+/**
+ * The tracks you played into the ground: ranked not by total plays (that just
+ * lists your favourites again) but by *burst* — how much of a track's listening
+ * piled into a single window.
+ *
+ * Ranking on concentration alone would crown every track that happens to have
+ * all `minPlays` of its plays on one afternoon, so the score multiplies
+ * concentration by the peak count: a 40-plays-in-a-week binge outranks an
+ * 8-plays-in-a-week one, and both outrank 200 plays spread evenly over a decade.
+ */
+export function obsessions(
+  scrobbles: readonly CountableScrobble[],
+  opts: { limit?: number; minPlays?: number; windowDays?: number } = {},
+): ObsessionData {
+  const limit = Math.max(1, opts.limit ?? 24);
+  const minPlays = Math.max(2, opts.minPlays ?? 8);
+  const windowMs = (opts.windowDays ?? 7) * 86_400_000;
+
+  const byTrack = new Map<string, number[]>();
+  let minUts = Infinity;
+  let maxUts = -Infinity;
+  for (const s of scrobbles) {
+    if (s.uts < minUts) minUts = s.uts;
+    if (s.uts > maxUts) maxUts = s.uts;
+    if (!s.track) continue; // untitled, or a dataset uploaded without tracks
+    const k = `${s.artist}${SEP}${s.track}`;
+    let arr = byTrack.get(k);
+    if (!arr) {
+      arr = [];
+      byTrack.set(k, arr);
+    }
+    arr.push(s.uts * 1000);
+  }
+  if (!byTrack.size || !Number.isFinite(minUts)) return { weeks: [], tracks: [] };
+
+  const ranked: (Omit<Obsession, 'series'> & { key: string })[] = [];
+  for (const [k, times] of byTrack) {
+    const total = times.length;
+    if (total < minPlays) continue;
+    times.sort((a, b) => a - b);
+    // Two-pointer sweep: for each play, how many plays fall within windowMs of
+    // it. Exact timestamps, not bucket-aligned, so "40 plays in one week" means
+    // a real seven-day stretch rather than a calendar week that happens to
+    // straddle the binge.
+    let peak = 0;
+    let peakMs = times[0]!;
+    let lo = 0;
+    for (let hi = 0; hi < total; hi++) {
+      while (times[hi]! - times[lo]! > windowMs) lo++;
+      const n = hi - lo + 1;
+      if (n > peak) {
+        peak = n;
+        peakMs = times[lo]!;
+      }
+    }
+    const sep = k.indexOf(SEP);
+    const concentration = peak / total;
+    ranked.push({
+      key: k,
+      artist: k.slice(0, sep),
+      track: k.slice(sep + 1),
+      total,
+      peak,
+      peakMs,
+      concentration,
+      score: peak * concentration,
+    });
+  }
+  if (!ranked.length) return { weeks: [], tracks: [] };
+
+  ranked.sort((a, b) => b.score - a.score || b.total - a.total);
+  const top = ranked.slice(0, limit);
+
+  // Weekly grid spanning the whole slice. ISO week starts are exactly 7 days
+  // apart in UTC, so plain addition stays aligned (no DST to straddle).
+  const WEEK_MS = 7 * 86_400_000;
+  const gridStart = bucketFor(minUts, 'weekly').start;
+  const gridEnd = bucketFor(maxUts, 'weekly').start;
+  const weeks: number[] = [];
+  for (let w = gridStart; w <= gridEnd; w += WEEK_MS) weeks.push(w);
+  const indexOfWeek = new Map(weeks.map((w, i) => [w, i]));
+
+  const tracks: Obsession[] = top.map(({ key, ...t }) => {
+    const series = new Array<number>(weeks.length).fill(0);
+    for (const ms of byTrack.get(key)!) {
+      const i = indexOfWeek.get(bucketFor(Math.floor(ms / 1000), 'weekly').start);
+      if (i != null) series[i] += 1;
+    }
+    return { ...t, series };
+  });
+
+  return { weeks, tracks };
+}
+
+/* ---------------------- Novelty (new vs. familiar) ----------------------- */
+
+export interface NoveltyBucket {
+  ms: number;
+  label: string;
+  /** Plays by artists making their first-ever appearance in this bucket. */
+  fresh: number;
+  /** Plays by artists already heard before this bucket. */
+  familiar: number;
+  /** Distinct artists debuting in this bucket. */
+  debuts: number;
+}
+
+export interface NoveltyData {
+  buckets: NoveltyBucket[];
+  totals: { fresh: number; familiar: number };
+}
+
+/**
+ * artist → first-ever play (epoch ms).
+ *
+ * Always build this from the **full** history, never from a filtered slice:
+ * scoped to a window, every artist in it looks like a fresh discovery and the
+ * novelty split degenerates towards 100% new whenever the date filter moves.
+ */
+export function firstPlayMap(
+  scrobbles: readonly CountableScrobble[],
+): Map<string, number> {
+  const first = new Map<string, number>();
+  for (const s of scrobbles) {
+    const ms = s.uts * 1000;
+    const prev = first.get(s.artist);
+    if (prev == null || ms < prev) first.set(s.artist, ms);
+  }
+  return first;
+}
+
+/**
+ * Exploring, or comforting yourself? Splits each bucket's plays into artists
+ * debuting *in that bucket* versus artists you already knew, so the ratio reads
+ * as an openness index over time.
+ */
+export function novelty(
+  scrobbles: readonly CountableScrobble[],
+  resolution: Resolution,
+  firstPlay: ReadonlyMap<string, number>,
+): NoveltyData {
+  const rows = new Map<
+    number,
+    { fresh: number; familiar: number; debuts: Set<string> }
+  >();
+  // artist -> the bucket their first-ever play lands in. Memoized because
+  // bucketFor would otherwise run per scrobble and artists repeat heavily.
+  const debutBucket = new Map<string, number>();
+  let minStart = Infinity;
+  let maxStart = -Infinity;
+
+  for (const s of scrobbles) {
+    const { start } = bucketFor(s.uts, resolution);
+    if (start < minStart) minStart = start;
+    if (start > maxStart) maxStart = start;
+    let debut = debutBucket.get(s.artist);
+    if (debut == null) {
+      const firstMs = firstPlay.get(s.artist) ?? s.uts * 1000;
+      debut = bucketFor(Math.floor(firstMs / 1000), resolution).start;
+      debutBucket.set(s.artist, debut);
+    }
+    let row = rows.get(start);
+    if (!row) {
+      row = { fresh: 0, familiar: 0, debuts: new Set() };
+      rows.set(start, row);
+    }
+    if (debut === start) {
+      row.fresh += 1;
+      row.debuts.add(s.artist);
+    } else {
+      row.familiar += 1;
+    }
+  }
+  if (!Number.isFinite(minStart)) {
+    return { buckets: [], totals: { fresh: 0, familiar: 0 } };
+  }
+
+  // Densify: an area chart must not interpolate a straight line across a silent
+  // year, so empty buckets are emitted as explicit zeroes.
+  const buckets: NoveltyBucket[] = [];
+  const totals = { fresh: 0, familiar: 0 };
+  for (let ms = minStart; ms <= maxStart; ms = nextBucketStart(ms, resolution)) {
+    const row = rows.get(ms);
+    const fresh = row?.fresh ?? 0;
+    const familiar = row?.familiar ?? 0;
+    totals.fresh += fresh;
+    totals.familiar += familiar;
+    buckets.push({
+      ms,
+      label: labelForStart(ms, resolution),
+      fresh,
+      familiar,
+      debuts: row?.debuts.size ?? 0,
+    });
+  }
+  return { buckets, totals };
+}
+
+/* ---------------------------- Artist tenure ------------------------------ */
+
+export interface Tenure {
+  artist: string;
+  /** First and last play in range (epoch ms). */
+  firstMs: number;
+  lastMs: number;
+  count: number;
+  /** Distinct local days with at least one play — how often they showed up. */
+  activeDays: number;
+}
+
+/**
+ * Lifers vs. flings: each artist's span from first to last play in range.
+ * {@link discovery} plots debuts as points; this shows how long anyone actually
+ * stayed, and `activeDays` separates a decade-long companion from an artist
+ * whose whole span is two bursts of obsession years apart.
+ *
+ * Two passes, so the day-sets (the expensive part) are built only for the top-N
+ * artists rather than for every long-tail name in the library.
+ */
+export function tenure(
+  scrobbles: readonly CountableScrobble[],
+  opts: { topN: number },
+): Tenure[] {
+  const counts = new Map<string, number>();
+  for (const s of scrobbles) counts.set(s.artist, (counts.get(s.artist) ?? 0) + 1);
+  const top = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .slice(0, Math.max(1, opts.topN));
+  if (!top.length) return [];
+
+  const tracked = new Map(
+    top.map(([artist, count]) => [
+      artist,
+      { count, firstMs: Infinity, lastMs: -Infinity, days: new Set<string>() },
+    ]),
+  );
+  for (const s of scrobbles) {
+    const row = tracked.get(s.artist);
+    if (!row) continue;
+    const ms = s.uts * 1000;
+    if (ms < row.firstMs) row.firstMs = ms;
+    if (ms > row.lastMs) row.lastMs = ms;
+    const d = new Date(ms);
+    row.days.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+  }
+
+  return [...tracked.entries()]
+    .map(([artist, r]) => ({
+      artist,
+      firstMs: r.firstMs,
+      lastMs: r.lastMs,
+      count: r.count,
+      activeDays: r.days.size,
+    }))
+    .sort((a, b) => a.firstMs - b.firstMs || b.count - a.count);
+}
+
+/* ---------------------------- Genre × hour ------------------------------- */
+
+export interface GenreHourRow {
+  genre: string;
+  total: number;
+  /** Plays per local hour, index 0..23. */
+  counts: number[];
+  /** Busiest single hour. */
+  peakHour: number;
+  /** Circular mean of play hours — the genre's centre of gravity in the day. */
+  meanHour: number;
+}
+
+export interface GenreHours {
+  rows: GenreHourRow[];
+  total: number;
+}
+
+/**
+ * What you play at 3am. {@link punchcard} shows when you listen overall; this
+ * slices the same clock by genre, so each row is one genre's daily shape.
+ *
+ * Rows come back sorted by circular-mean hour rather than by size, which puts
+ * the morning genres at the top and the nocturnal ones at the bottom. The mean
+ * has to be circular: averaging 23:00 and 01:00 arithmetically lands on noon,
+ * which would scatter exactly the late-night genres this view exists to find.
+ */
+export function genreHours(
+  scrobbles: readonly CountableScrobble[],
+  genreMap: Record<string, string>,
+  opts: { topGenres: number },
+): GenreHours {
+  const byGenre = new Map<string, number[]>();
+  let total = 0;
+  for (const s of scrobbles) {
+    const genre = genreMap[s.artist.toLowerCase()] ?? 'Unknown';
+    let counts = byGenre.get(genre);
+    if (!counts) {
+      counts = new Array<number>(24).fill(0);
+      byGenre.set(genre, counts);
+    }
+    counts[new Date(s.uts * 1000).getHours()] += 1;
+    total += 1;
+  }
+
+  const rows = [...byGenre.entries()]
+    .map(([genre, counts]) => {
+      let sum = 0;
+      let peakHour = 0;
+      let sin = 0;
+      let cos = 0;
+      counts.forEach((c, h) => {
+        sum += c;
+        if (c > counts[peakHour]!) peakHour = h;
+        const angle = (2 * Math.PI * h) / 24;
+        sin += c * Math.sin(angle);
+        cos += c * Math.cos(angle);
+      });
+      const mean = (Math.atan2(sin, cos) * 24) / (2 * Math.PI);
+      return { genre, total: sum, counts, peakHour, meanHour: (mean + 24) % 24 };
+    })
+    // Size picks *which* genres appear; the clock decides their order.
+    .sort((a, b) => b.total - a.total)
+    .slice(0, Math.max(1, opts.topGenres))
+    .sort((a, b) => a.meanHour - b.meanHour);
+
+  return { rows, total };
+}
+
+/* ---------------------------- Album depth -------------------------------- */
+
+export interface AlbumDepth {
+  album: string;
+  artist: string;
+  plays: number;
+  /** How many of the album's tracks you've played. */
+  distinctTracks: number;
+  /** plays / distinctTracks — how hard you leaned on the tracks you did play. */
+  playsPerTrack: number;
+  firstMs: number;
+  lastMs: number;
+}
+
+/**
+ * Deep cuts vs. hits: an album's breadth (distinct tracks played) against its
+ * depth (total plays). Albums you lived inside sit top-right; a single you heard
+ * once sits bottom-left.
+ *
+ * Honest limit: scrobbles carry no track numbers or tracklists, so this measures
+ * how much of an album *you* touched — not how much of it exists, and not
+ * whether you played it in order.
+ *
+ * Blank album titles are skipped rather than merged into one "Unknown" bucket,
+ * which would otherwise dominate the chart as a meaningless outlier.
+ */
+export function albumDepth(
+  scrobbles: readonly CountableScrobble[],
+  opts: { limit?: number; minPlays?: number } = {},
+): AlbumDepth[] {
+  const limit = Math.max(1, opts.limit ?? 150);
+  const minPlays = Math.max(1, opts.minPlays ?? 3);
+
+  const byAlbum = new Map<
+    string,
+    { plays: number; tracks: Set<string>; firstMs: number; lastMs: number }
+  >();
+  for (const s of scrobbles) {
+    if (!s.album || !s.track) continue;
+    const k = `${s.artist}${SEP}${s.album}`;
+    let row = byAlbum.get(k);
+    if (!row) {
+      row = { plays: 0, tracks: new Set(), firstMs: Infinity, lastMs: -Infinity };
+      byAlbum.set(k, row);
+    }
+    const ms = s.uts * 1000;
+    row.plays += 1;
+    // Case-fold: Last.fm returns the same track with inconsistent casing often
+    // enough that the raw string would inflate an album's breadth.
+    row.tracks.add(s.track.toLowerCase());
+    if (ms < row.firstMs) row.firstMs = ms;
+    if (ms > row.lastMs) row.lastMs = ms;
+  }
+
+  const out: AlbumDepth[] = [];
+  for (const [k, row] of byAlbum) {
+    if (row.plays < minPlays) continue;
+    const sep = k.indexOf(SEP);
+    out.push({
+      artist: k.slice(0, sep),
+      album: k.slice(sep + 1),
+      plays: row.plays,
+      distinctTracks: row.tracks.size,
+      playsPerTrack: row.plays / row.tracks.size,
+      firstMs: row.firstMs,
+      lastMs: row.lastMs,
+    });
+  }
+  return out.sort((a, b) => b.plays - a.plays).slice(0, limit);
+}
+
+/* ------------------------------ Sessions --------------------------------- */
+
+export interface SessionBin {
+  label: string;
+  /** Inclusive play-count bounds of the bin (`to` may be Infinity). */
+  from: number;
+  to: number;
+  count: number;
+}
+
+export interface SessionsData {
+  /** The silence that ends a session, echoed back for the view's copy. */
+  gapMinutes: number;
+  count: number;
+  totalPlays: number;
+  meanPlays: number;
+  medianPlays: number;
+  /** Median wall-clock length in minutes (a single-play session is 0). */
+  medianMinutes: number;
+  lengthBins: SessionBin[];
+  /** Sessions *started* per local hour, index 0..23. */
+  startHours: number[];
+  longest: {
+    startMs: number;
+    endMs: number;
+    plays: number;
+    topArtist: string;
+    /** The top artist's share of that session's plays. */
+    topShare: number;
+  } | null;
+}
+
+const SESSION_BINS: { label: string; from: number; to: number }[] = [
+  { label: '1', from: 1, to: 1 },
+  { label: '2–3', from: 2, to: 3 },
+  { label: '4–6', from: 4, to: 6 },
+  { label: '7–12', from: 7, to: 12 },
+  { label: '13–25', from: 13, to: 25 },
+  { label: '26–50', from: 26, to: 50 },
+  { label: '51+', from: 51, to: Infinity },
+];
+
+/**
+ * Listening blocks: consecutive plays separated by less than `gapMinutes` of
+ * silence count as one sitting, which turns a flat play stream into sessions you
+ * can count, measure and time.
+ *
+ * A heuristic, and knowingly so: a scrobble records when a track *started* and
+ * carries no duration, so a boundary is inferred from the gap alone — hence an
+ * adjustable threshold rather than a hardcoded one. From here, a long track and
+ * a short break look identical.
+ */
+export function sessions(
+  scrobbles: readonly CountableScrobble[],
+  opts: { gapMinutes?: number } = {},
+): SessionsData {
+  const gapMinutes = Math.max(1, opts.gapMinutes ?? 30);
+  const gapMs = gapMinutes * 60_000;
+  if (!scrobbles.length) {
+    return {
+      gapMinutes,
+      count: 0,
+      totalPlays: 0,
+      meanPlays: 0,
+      medianPlays: 0,
+      medianMinutes: 0,
+      lengthBins: SESSION_BINS.map((b) => ({ ...b, count: 0 })),
+      startHours: new Array<number>(24).fill(0),
+      longest: null,
+    };
+  }
+
+  // Don't assume input order: the cache is keyed by composite id, not by time.
+  const plays = scrobbles
+    .map((s) => ({ ms: s.uts * 1000, artist: s.artist }))
+    .sort((a, b) => a.ms - b.ms);
+
+  // Session boundaries as index pairs; per-session artist tallies are deferred
+  // so only the winner pays for them.
+  const found: { startIdx: number; endIdx: number; startMs: number; endMs: number }[] = [];
+  let startIdx = 0;
+  for (let i = 1; i <= plays.length; i++) {
+    const broke = i === plays.length || plays[i]!.ms - plays[i - 1]!.ms > gapMs;
+    if (!broke) continue;
+    found.push({
+      startIdx,
+      endIdx: i - 1,
+      startMs: plays[startIdx]!.ms,
+      endMs: plays[i - 1]!.ms,
+    });
+    startIdx = i;
+  }
+
+  const startHours = new Array<number>(24).fill(0);
+  const lengthBins = SESSION_BINS.map((b) => ({ ...b, count: 0 }));
+  const playCounts: number[] = [];
+  const durations: number[] = [];
+  let longestIdx = 0;
+  let longestPlays = 0;
+  found.forEach((s, i) => {
+    const n = s.endIdx - s.startIdx + 1;
+    playCounts.push(n);
+    durations.push((s.endMs - s.startMs) / 60_000);
+    startHours[new Date(s.startMs).getHours()] += 1;
+    const bin = lengthBins.find((b) => n >= b.from && n <= b.to);
+    if (bin) bin.count += 1;
+    if (n > longestPlays) {
+      longestPlays = n;
+      longestIdx = i;
+    }
+  });
+
+  const median = (xs: number[]) => {
+    if (!xs.length) return 0;
+    const sorted = [...xs].sort((a, b) => a - b);
+    const mid = sorted.length >> 1;
+    return sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+  };
+
+  const best = found[longestIdx]!;
+  const bestArtists = new Map<string, number>();
+  for (let i = best.startIdx; i <= best.endIdx; i++) {
+    const a = plays[i]!.artist;
+    bestArtists.set(a, (bestArtists.get(a) ?? 0) + 1);
+  }
+  const [topArtist, topCount] = [...bestArtists.entries()].sort(
+    (a, b) => b[1] - a[1],
+  )[0]!;
+
+  return {
+    gapMinutes,
+    count: found.length,
+    totalPlays: plays.length,
+    meanPlays: plays.length / found.length,
+    medianPlays: median(playCounts),
+    medianMinutes: median(durations),
+    lengthBins,
+    startHours,
+    longest: {
+      startMs: best.startMs,
+      endMs: best.endMs,
+      plays: longestPlays,
+      topArtist,
+      topShare: topCount / longestPlays,
+    },
+  };
 }

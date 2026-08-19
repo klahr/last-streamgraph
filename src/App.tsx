@@ -23,6 +23,12 @@ import { RankBump } from './components/views/RankBump';
 import { GenreSunburst } from './components/views/GenreSunburst';
 import { ArtistNetwork } from './components/views/ArtistNetwork';
 import { Forecast } from './components/views/Forecast';
+import { Obsessions } from './components/views/Obsessions';
+import { NoveltyStream } from './components/views/NoveltyStream';
+import { TenureChart } from './components/views/TenureChart';
+import { GenreClock } from './components/views/GenreClock';
+import { AlbumDepth } from './components/views/AlbumDepth';
+import { Sessions } from './components/views/Sessions';
 import type {
   Credentials,
   RangeSelection,
@@ -34,7 +40,13 @@ import type {
 const VIEWS: { id: View; label: string }[] = [
   { id: 'streamgraph', label: 'Streamgraph' },
   { id: 'forecast', label: '🔮 Forecast' },
+  { id: 'obsessions', label: 'Obsessions' },
+  { id: 'novelty', label: 'New vs. old' },
+  { id: 'tenure', label: 'Tenure' },
   { id: 'punchcard', label: 'Punchcard' },
+  { id: 'genrehours', label: 'Genre clock' },
+  { id: 'sessions', label: 'Sessions' },
+  { id: 'albumdepth', label: 'Albums' },
   { id: 'calendar', label: 'Calendar' },
   { id: 'seasonal', label: 'Seasonal' },
   { id: 'discovery', label: 'Discovery' },
@@ -55,6 +67,12 @@ const VIEW_DESCRIPTIONS: Record<View, string> = {
   rankbump: 'How the top artists\' ranking shifts across time buckets — rank 1 at the top, lines break on drop-out.',
   sunburst: 'A two-ring breakdown: top genres inner, each genre\'s top artists outer.',
   network: 'Artists you play on the same days pull together in a force-directed graph; edges = shared listening days.',
+  obsessions: 'The tracks you played into the ground — ranked by burst (peak plays in any 7 days), not by total.',
+  novelty: 'Exploring or comforting yourself? Plays split into brand-new artists vs. ones you already knew, per bucket.',
+  tenure: 'Lifers vs. flings: how long each artist stayed, from their first play to their last.',
+  genrehours: 'Each genre\'s own daily shape — rows normalized and sorted from morning listening to late-night.',
+  albumdepth: 'Albums by breadth (distinct tracks played) × depth (total plays). Above the dashed line = repeat listening.',
+  sessions: 'Listening blocks: consecutive plays with no long gap, so you can see how long a typical sitting runs.',
 };
 
 const BUCKET_NOUN: Record<Resolution, string> = {
@@ -77,6 +95,11 @@ function resolveRange(
       return { from: maxMs - 31 * DAY_MS, to: maxMs };
     case 'year':
       return { from: maxMs - 365 * DAY_MS, to: maxMs };
+    // Calendar year to date. Anchored to the newest scrobble rather than the
+    // wall clock, like every other preset here, so a history that stops short
+    // of today still yields its final year instead of an empty window.
+    case 'thisyear':
+      return { from: new Date(new Date(maxMs).getFullYear(), 0, 1).getTime(), to: maxMs };
     case '5years':
       return { from: maxMs - 5 * 365 * DAY_MS, to: maxMs };
     case 'custom':
@@ -95,6 +118,7 @@ const DEFAULT_CONFIG: VizConfig = {
   palette: 'viridis',
   groupBy: 'artist',
   forecastFilter: '',
+  sessionGapMin: 30,
 };
 
 const DEFAULT_CREDS: Credentials = { apiKey: '', username: '' };
@@ -231,6 +255,7 @@ export default function App() {
     topN: config.topN,
     groupBy: config.groupBy,
     forecastFilter: config.forecastFilter,
+    sessionGapMin: config.sessionGapMin,
     from,
     to,
   });
@@ -279,6 +304,35 @@ export default function App() {
       case 'network':
         return analyticsResult?.view === 'network' ? (
           <ArtistNetwork data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'obsessions':
+        return analyticsResult?.view === 'obsessions' ? (
+          <Obsessions data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'novelty':
+        return analyticsResult?.view === 'novelty' ? (
+          <NoveltyStream data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'tenure':
+        return analyticsResult?.view === 'tenure' ? (
+          <TenureChart data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'genrehours':
+        return analyticsResult?.view === 'genrehours' ? (
+          <GenreClock
+            data={analyticsResult.payload}
+            size={size}
+            palette={config.palette}
+            hasGenres={Object.keys(genre.genreMap).length > 0}
+          />
+        ) : null;
+      case 'albumdepth':
+        return analyticsResult?.view === 'albumdepth' ? (
+          <AlbumDepth data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'sessions':
+        return analyticsResult?.view === 'sessions' ? (
+          <Sessions data={analyticsResult.payload} size={size} palette={config.palette} />
         ) : null;
       case 'forecast':
         return analyticsResult?.view === 'forecast' ? (

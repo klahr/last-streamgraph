@@ -33,6 +33,23 @@ Once you've connected your account, you can explore your music in lots of ways:
   sketches where it *might* be heading over the next few months — rising, falling,
   or holding steady. (A playful guess, not a real prediction — your next obsession
   is always a surprise.)
+- **Obsessions** — the tracks you played into the ground. Not your favourites by
+  total plays, but your *binges*: the song that took over one week in March and
+  then vanished, drawn as a wall of spikes on one shared timeline.
+- **New vs. old** — were you exploring, or comforting yourself? Each month's plays
+  split into artists you'd never heard before and ones you already knew, with the
+  new-share traced on top as a kind of openness index.
+- **Tenure** — lifers vs. flings. One bar per artist, from their first play to
+  their last, so you can see who stayed for a decade and who burned bright for a
+  fortnight.
+- **Genre clock** — what you play at 3am. Each genre gets its own row of 24 hours,
+  scaled to its own peak and sorted from morning listening down to nocturnal, so
+  the small genres' habits show up as clearly as the big ones'.
+- **Sessions** — your listening in sittings rather than plays: how many, how long a
+  typical one runs, when they tend to start, and your single longest binge.
+- **Albums** — breadth against depth. How many of an album's tracks you've played
+  versus how often; the ones you lived inside pull away from the ones you sampled
+  once.
 - **Seasonal** — which months of the year you listen most.
 - **Discovery** — a timeline of when you found each artist.
 - **Rank** — how your top artists rise and fall against each other.

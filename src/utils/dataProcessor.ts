@@ -61,14 +61,14 @@ export function bucketFor(uts: number, resolution: Resolution): Bucket {
 }
 
 /** Advance a bucket-start (epoch ms, UTC) by one step of the resolution. */
-function nextBucketStart(start: number, resolution: Resolution): number {
+export function nextBucketStart(start: number, resolution: Resolution): number {
   if (resolution === 'weekly') return start + 7 * DAY_MS;
   const d = new Date(start);
   if (resolution === 'yearly') return Date.UTC(d.getUTCFullYear() + 1, 0, 1);
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
 }
 
-function labelForStart(start: number, resolution: Resolution): string {
+export function labelForStart(start: number, resolution: Resolution): string {
   // Derive a label from the bucket start (mid-bucket sample for weekly avoids
   // boundary ambiguity). Reuse bucketFor by sampling a second into the bucket.
   return bucketFor(Math.floor(start / 1000) + 1, resolution).label;
@@ -80,6 +80,8 @@ export interface CountableScrobble {
   uts: number;
   /** Present when album grouping is needed. */
   album?: string;
+  /** Present for the track-level views (obsessions, album depth). */
+  track?: string;
 }
 
 /**

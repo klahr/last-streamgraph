@@ -2,13 +2,19 @@
 import type { Size } from '../../hooks/useResizeObserver';
 import type { PaletteId } from '../../types';
 import type {
+  AlbumDepth,
   DailyCounts,
   Discovery,
   ForecastSeries,
+  GenreHours,
   HierNode,
   NetworkData,
+  NoveltyData,
+  ObsessionData,
   Punchcard,
   RankData,
+  SessionsData,
+  Tenure,
 } from '../../utils/analytics';
 
 /** Common display-only props shared by every auxiliary visualization. */
@@ -45,6 +51,31 @@ export interface SunburstProps extends DisplayProps {
 
 export interface NetworkProps extends DisplayProps {
   data: NetworkData;
+}
+
+export interface ObsessionsProps extends DisplayProps {
+  data: ObsessionData;
+}
+
+export interface NoveltyProps extends DisplayProps {
+  data: NoveltyData;
+}
+
+export interface TenureProps extends DisplayProps {
+  data: Tenure[];
+}
+
+export interface GenreClockProps extends DisplayProps {
+  data: GenreHours;
+  hasGenres: boolean;
+}
+
+export interface AlbumDepthProps extends DisplayProps {
+  data: AlbumDepth[];
+}
+
+export interface SessionsProps extends DisplayProps {
+  data: SessionsData;
 }
 
 export interface ForecastProps {

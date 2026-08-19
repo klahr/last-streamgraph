@@ -24,9 +24,15 @@ import type {
   RankData,
 } from '../utils/analytics';
 import type {
+  AlbumDepth,
   DailyCounts,
   Discovery,
+  GenreHours,
+  NoveltyData,
+  ObsessionData,
   Punchcard,
+  SessionsData,
+  Tenure,
 } from '../utils/analytics';
 
 interface Options {
@@ -35,6 +41,7 @@ interface Options {
   topN: number;
   groupBy: GroupBy;
   forecastFilter: string;
+  sessionGapMin: number;
   from?: number;
   to?: number;
 }
@@ -48,7 +55,13 @@ export type AnalyticsViewResult =
   | { view: 'rankbump'; payload: RankData }
   | { view: 'sunburst'; payload: HierNode }
   | { view: 'network'; payload: NetworkData }
-  | { view: 'forecast'; payload: ForecastSeries[] };
+  | { view: 'forecast'; payload: ForecastSeries[] }
+  | { view: 'obsessions'; payload: ObsessionData }
+  | { view: 'novelty'; payload: NoveltyData }
+  | { view: 'tenure'; payload: Tenure[] }
+  | { view: 'genrehours'; payload: GenreHours }
+  | { view: 'albumdepth'; payload: AlbumDepth[] }
+  | { view: 'sessions'; payload: SessionsData };
 
 export interface AnalyticsState {
   result: AnalyticsViewResult | null;
@@ -86,7 +99,8 @@ export function useAnalytics(
     };
   }, []);
 
-  const { view, resolution, topN, groupBy, forecastFilter, from, to } = opts;
+  const { view, resolution, topN, groupBy, forecastFilter, sessionGapMin, from, to } =
+    opts;
 
   useEffect(() => {
     const client = clientRef.current;
@@ -110,7 +124,12 @@ export function useAnalytics(
         now - lastUploadAtRef.current >= UPLOAD_MIN_MS
       ) {
         client.setData(
-          scrobbles.map((s) => ({ artist: s.artist, uts: s.uts, album: s.album })),
+          scrobbles.map((s) => ({
+            artist: s.artist,
+            uts: s.uts,
+            album: s.album,
+            track: s.track,
+          })),
         );
         sentDataRef.current = scrobbles;
         lastUploadAtRef.current = now;
@@ -121,7 +140,16 @@ export function useAnalytics(
       }
       if (!isAuxView) return;
       client
-        .compute({ view, resolution, topN, groupBy, forecastFilter, from, to })
+        .compute({
+          view,
+          resolution,
+          topN,
+          groupBy,
+          forecastFilter,
+          sessionGapMin,
+          from,
+          to,
+        })
         .then((payload) => {
           setRaw({ view, payload });
           setProcessing(false);
@@ -136,7 +164,18 @@ export function useAnalytics(
         });
     }, 120);
     return () => clearTimeout(handle);
-  }, [scrobbles, genreMap, view, resolution, topN, groupBy, forecastFilter, from, to]);
+  }, [
+    scrobbles,
+    genreMap,
+    view,
+    resolution,
+    topN,
+    groupBy,
+    forecastFilter,
+    sessionGapMin,
+    from,
+    to,
+  ]);
 
   const result = raw as AnalyticsViewResult | null;
   return { result, processing, error };

@@ -19,6 +19,13 @@ import {
   genreHierarchy,
   networkGraph,
   forecast,
+  obsessions,
+  novelty,
+  firstPlayMap,
+  tenure,
+  genreHours,
+  albumDepth,
+  sessions,
 } from '../utils/analytics';
 import { bucketFor } from '../utils/dataProcessor';
 import { UNKNOWN_GENRE } from '../utils/genres';
@@ -37,6 +44,8 @@ export interface AnalyticsRequest {
   groupBy: GroupBy;
   /** Regex filter for the forecast view (empty → top-N by play count). */
   forecastFilter: string;
+  /** Silence (minutes) that ends a listening session, for the sessions view. */
+  sessionGapMin: number;
   /** Inclusive bucket-level date window (epoch ms). Omit for all-time. */
   from?: number;
   to?: number;
@@ -60,6 +69,14 @@ export const FORECAST_HORIZON = 6;
 
 let dataset: CountableScrobble[] = [];
 let genreMap: Record<string, string> = {};
+
+/**
+ * artist → first-ever play, over the **whole** dataset rather than the ranged
+ * slice, because "new to me" is a fact about all of history: computed from a
+ * slice, every artist in the window would read as a fresh discovery. Cached
+ * because it's an O(N) scan that only the dataset can invalidate.
+ */
+let firstPlayCache: Map<string, number> | null = null;
 
 // Memoize range-filtered slices to avoid re-scanning on every slider tick. The
 // ranged slice is identical for all views for a given (resolution, from, to),
@@ -141,7 +158,8 @@ function forecastKeys(
 }
 
 function compute(request: AnalyticsRequest): unknown {
-  const { view, resolution, topN, groupBy, forecastFilter, from, to } = request;
+  const { view, resolution, topN, groupBy, forecastFilter, sessionGapMin, from, to } =
+    request;
   const slice = rangedSlice(resolution, from, to);
 
   switch (view) {
@@ -164,6 +182,22 @@ function compute(request: AnalyticsRequest): unknown {
         minSharedDays: 3,
         maxEdges: 400,
       });
+    case 'obsessions':
+      // Weekly sparkline grid + burst ranking. 8 plays is the floor for a
+      // track to count as an obsession at all; below that a single afternoon
+      // of curiosity would score as one.
+      return obsessions(slice, { limit: 24, minPlays: 8, windowDays: 7 });
+    case 'novelty':
+      firstPlayCache ??= firstPlayMap(dataset);
+      return novelty(slice, resolution, firstPlayCache);
+    case 'tenure':
+      return tenure(slice, { topN: Math.min(topN, 60) });
+    case 'genrehours':
+      return genreHours(slice, genreMap, { topGenres: 16 });
+    case 'albumdepth':
+      return albumDepth(slice, { limit: 150, minPlays: 3 });
+    case 'sessions':
+      return sessions(slice, { gapMinutes: sessionGapMin });
     case 'forecast': {
       // Key by genre only when genres are loaded AND the user asked for genre
       // grouping; by album when grouping by album; otherwise per artist so the
@@ -199,6 +233,7 @@ ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
   if (msg.type === 'data') {
     dataset = msg.scrobbles;
     sliceCache = null;
+    firstPlayCache = null;
     return;
   }
   if (msg.type === 'genres') {

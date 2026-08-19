@@ -54,6 +54,7 @@ const RANGE_PRESETS: { id: RangePreset; label: string }[] = [
   { id: 'all', label: 'All time' },
   { id: '5years', label: '5 yrs' },
   { id: 'year', label: '1 yr' },
+  { id: 'thisyear', label: 'This yr' },
   { id: 'month', label: '1 mo' },
 ];
 
@@ -90,12 +91,16 @@ export function ControlPanel({
 
   // Each control is shown only on the views it actually affects, so the panel
   // never presents a knob that's silently inert on the current view.
-  const showResolution = view === 'streamgraph' || view === 'rankbump';
+  const showResolution =
+    view === 'streamgraph' || view === 'rankbump' || view === 'novelty';
   const showGroupBy =
     view === 'streamgraph' || view === 'sunburst' || view === 'forecast';
   const showStreamMode = view === 'streamgraph';
   const showTopN =
-    view === 'streamgraph' || view === 'rankbump' || view === 'network';
+    view === 'streamgraph' ||
+    view === 'rankbump' ||
+    view === 'network' ||
+    view === 'tenure';
   // The forecast view replaces the Top-N slider with a regex filter.
   const showForecastFilter = view === 'forecast';
   // Red border on an invalid regex; empty/valid are neutral.
@@ -111,7 +116,9 @@ export function ControlPanel({
       ? `Top ${config.topN} per interval`
       : view === 'rankbump'
         ? `Top ${config.topN} ranked`
-        : `Top ${config.topN} artists`;
+        : view === 'tenure'
+          ? `Top ${config.topN} by plays`
+          : `Top ${config.topN} artists`;
 
   return (
     <aside
@@ -232,12 +239,12 @@ export function ControlPanel({
 
       {/* Date range */}
       <Section title="Date range">
-        <div className="flex gap-1.5">
+        <div className="flex flex-wrap gap-1.5">
           {RANGE_PRESETS.map((p) => (
             <button
               key={p.id}
               onClick={() => onRangeChange({ preset: p.id, from: null, to: null })}
-              className={`flex-1 rounded border px-1.5 py-1 text-xs transition ${
+              className={`flex-1 whitespace-nowrap rounded border px-1.5 py-1 text-xs transition ${
                 range.preset === p.id
                   ? 'border-sky-500 bg-sky-500/20 text-sky-300'
                   : 'border-slate-700 text-slate-400 hover:border-slate-600'
@@ -282,6 +289,37 @@ export function ControlPanel({
               onRefetch={onRefetchGenres}
             />
           )}
+        </Section>
+      )}
+
+      {/* Genre tagging status for the genre clock, which needs tags but has no
+          Group-by knob of its own to hang them under. */}
+      {view === 'genrehours' && (
+        <Section title="Genres">
+          <GenreStatus
+            progress={genreProgress}
+            missing={genreMissing}
+            onRefetch={onRefetchGenres}
+          />
+        </Section>
+      )}
+
+      {/* Session gap (sessions only). Scrobbles carry no track durations, so
+          where one sitting ends is a judgement call, not a fact. */}
+      {view === 'sessions' && (
+        <Section title="Session gap">
+          <SegmentedControl<string>
+            value={String(config.sessionGapMin)}
+            onChange={(v) => onConfigChange({ sessionGapMin: Number(v) })}
+            options={[
+              { value: '15', label: '15 min' },
+              { value: '30', label: '30 min' },
+              { value: '60', label: '60 min' },
+            ]}
+          />
+          <p className="text-xs text-slate-500">
+            Silence longer than this starts a new session.
+          </p>
         </Section>
       )}
 
