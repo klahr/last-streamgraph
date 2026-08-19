@@ -9,6 +9,7 @@ import {
   type Snapshot,
 } from './shareSnapshot';
 import type { DailyCounts, RetentionData } from './analytics';
+import { shareTitleFor } from '../viewMeta';
 
 const base: Omit<Snapshot, 'view' | 'payload'> = {
   palette: 'viridis',
@@ -137,5 +138,18 @@ describe('shareSnapshot', () => {
   it('excludes the streamgraph, which draws from another pipeline', () => {
     expect(isSnapshotView('streamgraph')).toBe(false);
     expect(isSnapshotView('retention')).toBe(true);
+  });
+});
+
+describe('shareTitleFor', () => {
+  it('names the sharer possessively and drops tab decoration', () => {
+    expect(shareTitleFor('obsessions', 'klarre908')).toBe("klarre908's Obsessions");
+    // The tab reads "🔮 Forecast"; a poster title shouldn't.
+    expect(shareTitleFor('forecast', 'klarre908')).toBe("klarre908's Forecast");
+  });
+
+  it('falls back to the bare view name without a username', () => {
+    expect(shareTitleFor('retention', '')).toBe('Retention');
+    expect(shareTitleFor('retention', '   ')).toBe('Retention');
   });
 });

@@ -10,7 +10,7 @@
 import { Component, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useResizeObserver } from '../hooks/useResizeObserver';
 import { renderAnalyticsView } from './views/renderAnalyticsView';
-import { labelFor, VIEW_DESCRIPTIONS } from '../viewMeta';
+import { plainLabelFor, VIEW_DESCRIPTIONS } from '../viewMeta';
 import { decodeSnapshot, type Snapshot } from '../utils/shareSnapshot';
 import type { AnalyticsViewResult } from '../hooks/useAnalytics';
 import { snapshotFacts } from '../utils/snapshotFacts';
@@ -72,7 +72,7 @@ function Poster({ snapshot }: { snapshot: Snapshot }) {
     [snapshot],
   );
   const facts = useMemo(() => snapshotFacts(snapshot), [snapshot]);
-  const title = snapshot.label.trim() || labelFor(snapshot.view);
+  const title = snapshot.label.trim() || plainLabelFor(snapshot.view);
 
   return (
     <>

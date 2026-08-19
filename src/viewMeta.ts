@@ -29,6 +29,23 @@ export const VIEWS: { id: View; label: string }[] = [
 export const labelFor = (view: View): string =>
   VIEWS.find((v) => v.id === view)?.label ?? view;
 
+/**
+ * The tab label without its decoration — "🔮 Forecast" reads fine as a tab but
+ * not set in 60px on a poster, where the emoji lands mid-sentence.
+ */
+export const plainLabelFor = (view: View): string =>
+  labelFor(view).replace(/^[^\p{L}\p{N}]+/u, '');
+
+/**
+ * Default title offered when sharing. Prefilled into an editable field rather
+ * than stamped on the snapshot: the username is the sharer's to disclose, so it
+ * should be sitting in front of them, deletable, before the link exists.
+ */
+export const shareTitleFor = (view: View, username: string): string => {
+  const name = username.trim();
+  return name ? `${name}'s ${plainLabelFor(view)}` : plainLabelFor(view);
+};
+
 /** One-line, user-facing summary of each view. Mirrors each view's doc comment
  * so the in-app copy and the code documentation can't drift. */
 export const VIEW_DESCRIPTIONS: Record<View, string> = {

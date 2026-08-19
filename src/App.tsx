@@ -17,7 +17,7 @@ import { usernameFromPath, syncUsernameToPath } from './utils/shareUrl';
 import { hostApiKey } from './utils/runtimeConfig';
 import { renderAnalyticsView } from './components/views/renderAnalyticsView';
 import { ShareButton } from './components/ShareButton';
-import { VIEWS, VIEW_DESCRIPTIONS, labelFor } from './viewMeta';
+import { VIEWS, VIEW_DESCRIPTIONS, labelFor, shareTitleFor } from './viewMeta';
 import { isSnapshotView, type Snapshot } from './utils/shareSnapshot';
 import type {
   Credentials,
@@ -374,6 +374,7 @@ export default function App() {
               buildSnapshot={buildSnapshot}
               chartRef={chartRef}
               viewLabel={labelFor(view)}
+              defaultLabel={shareTitleFor(view, creds.username)}
             />
           </div>
         </div>

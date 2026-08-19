@@ -26,6 +26,8 @@ interface Props {
   chartRef: React.RefObject<HTMLDivElement | null>;
   /** Used for the download filename and the panel heading. */
   viewLabel: string;
+  /** Prefilled into the title field each time the panel opens. */
+  defaultLabel: string;
 }
 
 type Status =
@@ -35,9 +37,14 @@ type Status =
   | { kind: 'saved' }
   | { kind: 'error'; message: string };
 
-export function ShareButton({ buildSnapshot, chartRef, viewLabel }: Props) {
+export function ShareButton({
+  buildSnapshot,
+  chartRef,
+  viewLabel,
+  defaultLabel,
+}: Props) {
   const [open, setOpen] = useState(false);
-  const [label, setLabel] = useState('');
+  const [label, setLabel] = useState(defaultLabel);
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
   /** Encoded length of the current snapshot, or null while it's unknown. */
   const [chars, setChars] = useState<number | null>(null);
@@ -46,6 +53,12 @@ export function ShareButton({ buildSnapshot, chartRef, viewLabel }: Props) {
   const canSnapshot = buildSnapshot('') !== null;
   const canPng = open && soleSvg(chartRef.current) !== null;
   const tooLarge = chars != null && chars > MAX_FRAGMENT_CHARS;
+
+  // Re-offer the current view's default each time the panel opens — otherwise
+  // a title typed for the Punchcard would follow you onto the Retention chart.
+  useEffect(() => {
+    if (open) setLabel(defaultLabel);
+  }, [open, defaultLabel]);
 
   // Measure the link as soon as the panel opens, so "too large" is visible
   // before the user tries rather than after.
@@ -147,11 +160,14 @@ export function ShareButton({ buildSnapshot, chartRef, viewLabel }: Props) {
           className="absolute right-0 z-40 mt-1 w-80 rounded-lg border border-slate-700 bg-slate-900 p-3 shadow-xl"
         >
           <p className="mb-2 text-sm text-slate-200">Share “{viewLabel}”</p>
+          <p className="mb-1.5 text-[11px] text-slate-500">
+            Title on the shared page — clear it to leave your username off.
+          </p>
 
           <input
             value={label}
             onChange={(e) => setLabel(e.target.value.slice(0, 60))}
-            placeholder="Add a title (optional)"
+            placeholder={viewLabel}
             className="mb-2 w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-sm text-slate-200 placeholder:text-slate-600 focus:border-sky-600 focus:outline-none"
           />
 
