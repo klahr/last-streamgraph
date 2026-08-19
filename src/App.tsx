@@ -29,6 +29,8 @@ import { TenureChart } from './components/views/TenureChart';
 import { GenreClock } from './components/views/GenreClock';
 import { AlbumDepth } from './components/views/AlbumDepth';
 import { Sessions } from './components/views/Sessions';
+import { YearOverYear } from './components/views/YearOverYear';
+import { Retention } from './components/views/Retention';
 import type {
   Credentials,
   RangeSelection,
@@ -43,6 +45,8 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'obsessions', label: 'Obsessions' },
   { id: 'novelty', label: 'New vs. old' },
   { id: 'tenure', label: 'Tenure' },
+  { id: 'retention', label: 'Retention' },
+  { id: 'yoy', label: 'Year on year' },
   { id: 'punchcard', label: 'Punchcard' },
   { id: 'genrehours', label: 'Genre clock' },
   { id: 'sessions', label: 'Sessions' },
@@ -73,6 +77,8 @@ const VIEW_DESCRIPTIONS: Record<View, string> = {
   genrehours: 'Each genre\'s own daily shape — rows normalized and sorted from morning listening to late-night.',
   albumdepth: 'Albums by breadth (distinct tracks played) × depth (total plays). Above the dashed line = repeat listening.',
   sessions: 'Listening blocks: consecutive plays with no long gap, so you can see how long a typical sitting runs.',
+  yoy: 'Cumulative plays per calendar year on one day-of-year axis — which year was heavy, and whether you\'re ahead of last year.',
+  retention: 'How fast each year\'s discoveries faded: plays by months-since-debut, grouped by discovery year, with a half-life per cohort. Reads all history.',
 };
 
 const BUCKET_NOUN: Record<Resolution, string> = {
@@ -333,6 +339,14 @@ export default function App() {
       case 'sessions':
         return analyticsResult?.view === 'sessions' ? (
           <Sessions data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'yoy':
+        return analyticsResult?.view === 'yoy' ? (
+          <YearOverYear data={analyticsResult.payload} size={size} palette={config.palette} />
+        ) : null;
+      case 'retention':
+        return analyticsResult?.view === 'retention' ? (
+          <Retention data={analyticsResult.payload} size={size} palette={config.palette} />
         ) : null;
       case 'forecast':
         return analyticsResult?.view === 'forecast' ? (

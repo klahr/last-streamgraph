@@ -1022,3 +1022,210 @@ export function sessions(
     },
   };
 }
+
+/* --------------------------- Year over year ------------------------------ */
+
+export interface YearSeries {
+  year: number;
+  /** Cumulative plays by day-of-year, index 0 = Jan 1. Ends on the last day
+   *  with plays, so a partial (or current) year stops rather than running flat
+   *  to December. */
+  cumulative: number[];
+  total: number;
+}
+
+export interface YearOverYearData {
+  years: YearSeries[];
+  /** Largest year total, for a y domain shared across every line. */
+  max: number;
+}
+
+/**
+ * One cumulative curve per calendar year on a shared day-of-year axis, so years
+ * can be read against each other: which was the heavy one, and whether you're
+ * ahead of where you were this time last year.
+ *
+ * `seasonal` aggregates month-of-year across all years and so can't show either.
+ *
+ * Local time, like the other calendar-shaped views — this is "your clock". The
+ * day index is derived from the local Y/M/D via UTC arithmetic so a DST shift
+ * can't round a 23-hour day into the wrong slot.
+ */
+export function yearOverYear(
+  scrobbles: readonly CountableScrobble[],
+): YearOverYearData {
+  const DAY = 86_400_000;
+  const byYear = new Map<number, number[]>();
+  for (const s of scrobbles) {
+    const d = new Date(s.uts * 1000);
+    const year = d.getFullYear();
+    const dayIdx = Math.round(
+      (Date.UTC(year, d.getMonth(), d.getDate()) - Date.UTC(year, 0, 1)) / DAY,
+    );
+    let daily = byYear.get(year);
+    if (!daily) {
+      daily = new Array<number>(366).fill(0); // 366: leap years
+      byYear.set(year, daily);
+    }
+    daily[dayIdx] += 1;
+  }
+
+  const years: YearSeries[] = [...byYear.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([year, daily]) => {
+      let lastDay = -1;
+      for (let i = daily.length - 1; i >= 0; i--) {
+        if (daily[i]) {
+          lastDay = i;
+          break;
+        }
+      }
+      const cumulative: number[] = [];
+      let run = 0;
+      for (let i = 0; i <= lastDay; i++) {
+        run += daily[i]!;
+        cumulative.push(run);
+      }
+      return { year, cumulative, total: run };
+    });
+
+  return { years, max: Math.max(1, ...years.map((y) => y.total)) };
+}
+
+/* --------------------------- Cohort retention ---------------------------- */
+
+export interface RetentionCohort {
+  /** Year the artists in this cohort were first heard. */
+  year: number;
+  /** Distinct artists discovered that year. */
+  artists: number;
+  /** Plays per month since discovery, index 0 = the debut month. */
+  months: number[];
+  /** Each month's share of the cohort's plays, aligned to `months`. */
+  shares: number[];
+  total: number;
+  /** Months until half the cohort's plays had happened — its decay speed. */
+  halfLifeMonths: number;
+  /**
+   * Highest month-age observed for *every* artist in the cohort. Columns past
+   * this are unobserved, not empty: a cohort from last year simply hasn't had
+   * time to reach month 30 yet, and rendering that as a zero would read as
+   * abandonment.
+   */
+  fullyObservedMonths: number;
+}
+
+export interface RetentionData {
+  cohorts: RetentionCohort[];
+  /** Widest age worth drawing, for a shared x axis. */
+  maxAge: number;
+}
+
+/**
+ * How long your enthusiasms last. Artists are grouped into cohorts by the year
+ * you discovered them, then their plays are laid out by *age* — months since
+ * that artist's debut — and normalized per cohort, so a 2016 cohort's decay
+ * shape can be compared with a 2023 one regardless of size.
+ *
+ * `tenure` shows how long individual artists stayed; this shows the shape of the
+ * fade, and `halfLifeMonths` compresses it to one number per cohort.
+ *
+ * Pass the **whole** history, not a ranged slice, for both arguments. A date
+ * filter would chop the right-hand side off every row and bias every half-life
+ * short — the failure is invisible in the output, which is why this reads all
+ * history and the view says so.
+ *
+ * Ages beyond `maxMonths` are dropped, which only touches cohorts older than
+ * the cap (10 years by default).
+ */
+export function retention(
+  scrobbles: readonly CountableScrobble[],
+  firstPlay: ReadonlyMap<string, number>,
+  opts: { maxMonths?: number } = {},
+): RetentionData {
+  const maxMonths = Math.max(1, opts.maxMonths ?? 120);
+  // Absolute month index (year * 12 + month) makes age a subtraction. UTC, to
+  // match the monthly bucketing the streamgraph and novelty views use.
+  const debutMonth = new Map<string, number>();
+  const rows = new Map<
+    number,
+    {
+      artists: Set<string>;
+      months: number[];
+      total: number;
+      latestDebut: number;
+    }
+  >();
+  let lastMonth = -Infinity;
+
+  for (const s of scrobbles) {
+    let debut = debutMonth.get(s.artist);
+    if (debut == null) {
+      const firstMs = firstPlay.get(s.artist) ?? s.uts * 1000;
+      const f = new Date(firstMs);
+      debut = f.getUTCFullYear() * 12 + f.getUTCMonth();
+      debutMonth.set(s.artist, debut);
+    }
+    const d = new Date(s.uts * 1000);
+    const abs = d.getUTCFullYear() * 12 + d.getUTCMonth();
+    if (abs > lastMonth) lastMonth = abs;
+    const age = abs - debut;
+    if (age < 0 || age > maxMonths) continue;
+
+    const year = Math.floor(debut / 12);
+    let row = rows.get(year);
+    if (!row) {
+      row = {
+        artists: new Set(),
+        months: new Array<number>(maxMonths + 1).fill(0),
+        total: 0,
+        latestDebut: -Infinity,
+      };
+      rows.set(year, row);
+    }
+    row.artists.add(s.artist);
+    row.months[age] += 1;
+    row.total += 1;
+    if (debut > row.latestDebut) row.latestDebut = debut;
+  }
+  if (!rows.size) return { cohorts: [], maxAge: 0 };
+
+  let maxAge = 0;
+  const cohorts: RetentionCohort[] = [...rows.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([year, row]) => {
+      // Half-life: the age by which half the cohort's plays had happened.
+      let running = 0;
+      let halfLifeMonths = 0;
+      for (let i = 0; i < row.months.length; i++) {
+        running += row.months[i]!;
+        if (running >= row.total / 2) {
+          halfLifeMonths = i;
+          break;
+        }
+      }
+      let lastNonZero = 0;
+      for (let i = row.months.length - 1; i >= 0; i--) {
+        if (row.months[i]) {
+          lastNonZero = i;
+          break;
+        }
+      }
+      const fullyObservedMonths = Math.max(
+        0,
+        Math.min(maxMonths, lastMonth - row.latestDebut),
+      );
+      maxAge = Math.max(maxAge, lastNonZero, fullyObservedMonths);
+      return {
+        year,
+        artists: row.artists.size,
+        months: row.months,
+        shares: row.months.map((v) => (row.total ? v / row.total : 0)),
+        total: row.total,
+        halfLifeMonths,
+        fullyObservedMonths,
+      };
+    });
+
+  return { cohorts, maxAge };
+}

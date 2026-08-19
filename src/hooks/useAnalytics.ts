@@ -31,8 +31,10 @@ import type {
   NoveltyData,
   ObsessionData,
   Punchcard,
+  RetentionData,
   SessionsData,
   Tenure,
+  YearOverYearData,
 } from '../utils/analytics';
 
 interface Options {
@@ -61,7 +63,9 @@ export type AnalyticsViewResult =
   | { view: 'tenure'; payload: Tenure[] }
   | { view: 'genrehours'; payload: GenreHours }
   | { view: 'albumdepth'; payload: AlbumDepth[] }
-  | { view: 'sessions'; payload: SessionsData };
+  | { view: 'sessions'; payload: SessionsData }
+  | { view: 'yoy'; payload: YearOverYearData }
+  | { view: 'retention'; payload: RetentionData };
 
 export interface AnalyticsState {
   result: AnalyticsViewResult | null;

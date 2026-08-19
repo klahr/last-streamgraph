@@ -26,6 +26,8 @@ import {
   genreHours,
   albumDepth,
   sessions,
+  yearOverYear,
+  retention,
 } from '../utils/analytics';
 import { bucketFor } from '../utils/dataProcessor';
 import { UNKNOWN_GENRE } from '../utils/genres';
@@ -77,6 +79,13 @@ let genreMap: Record<string, string> = {};
  * because it's an O(N) scan that only the dataset can invalidate.
  */
 let firstPlayCache: Map<string, number> | null = null;
+
+/**
+ * Cohort retention reads all history by design (a ranged slice would bias every
+ * half-life short), so its result depends on nothing but the dataset — cache it
+ * outright rather than recomputing on every slider tick.
+ */
+let retentionCache: ReturnType<typeof retention> | null = null;
 
 // Memoize range-filtered slices to avoid re-scanning on every slider tick. The
 // ranged slice is identical for all views for a given (resolution, from, to),
@@ -198,6 +207,13 @@ function compute(request: AnalyticsRequest): unknown {
       return albumDepth(slice, { limit: 150, minPlays: 3 });
     case 'sessions':
       return sessions(slice, { gapMinutes: sessionGapMin });
+    case 'yoy':
+      return yearOverYear(slice);
+    case 'retention':
+      // Deliberately `dataset`, not `slice` — see the retention() docs.
+      firstPlayCache ??= firstPlayMap(dataset);
+      retentionCache ??= retention(dataset, firstPlayCache, { maxMonths: 120 });
+      return retentionCache;
     case 'forecast': {
       // Key by genre only when genres are loaded AND the user asked for genre
       // grouping; by album when grouping by album; otherwise per artist so the
@@ -234,6 +250,7 @@ ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
     dataset = msg.scrobbles;
     sliceCache = null;
     firstPlayCache = null;
+    retentionCache = null;
     return;
   }
   if (msg.type === 'genres') {

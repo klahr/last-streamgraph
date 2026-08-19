@@ -15,6 +15,8 @@ import {
   genreHours,
   albumDepth,
   sessions,
+  yearOverYear,
+  retention,
 } from './analytics';
 import type { Scrobble } from '../types';
 
@@ -496,5 +498,107 @@ describe('sessions', () => {
     expect(d.count).toBe(0);
     expect(d.longest).toBeNull();
     expect(d.startHours).toHaveLength(24);
+  });
+});
+
+describe('yearOverYear', () => {
+  it('accumulates per calendar year on a day-of-year axis', () => {
+    const s = [
+      mk('A', new Date(2023, 0, 1, 12)), // day 0
+      mk('A', new Date(2023, 0, 1, 13)), // same day
+      mk('A', new Date(2023, 1, 1, 12)), // day 31
+      mk('A', new Date(2024, 0, 1, 12)),
+    ];
+    const { years, max } = yearOverYear(s);
+    expect(years.map((y) => y.year)).toEqual([2023, 2024]);
+    const y23 = years[0]!;
+    expect(y23.cumulative[0]).toBe(2); // both Jan 1 plays
+    expect(y23.cumulative[31]).toBe(3); // plus Feb 1
+    expect(y23.total).toBe(3);
+    // Silent days between carry the running total forward rather than dropping.
+    expect(y23.cumulative[15]).toBe(2);
+    expect(max).toBe(3);
+  });
+
+  it('stops a partial year at its last play instead of running flat to December', () => {
+    const s = [mk('A', new Date(2025, 1, 10, 12))]; // Feb 10 -> day 40
+    const { years } = yearOverYear(s);
+    expect(years[0]!.cumulative).toHaveLength(41);
+    expect(years[0]!.cumulative[40]).toBe(1);
+  });
+
+  it('keeps leap-year days in range', () => {
+    const s = [mk('A', new Date(2024, 11, 31, 12))]; // day 365 of a leap year
+    const { years } = yearOverYear(s);
+    expect(years[0]!.cumulative).toHaveLength(366);
+    expect(years[0]!.total).toBe(1);
+  });
+});
+
+describe('retention', () => {
+  it('groups artists by discovery year and lays plays out by age in months', () => {
+    const all = [
+      // Discovered Jan 2020, played again 2 months later.
+      mk('A', new Date(Date.UTC(2020, 0, 15, 12))),
+      mk('A', new Date(Date.UTC(2020, 2, 15, 12))),
+      // Discovered Jun 2021.
+      mk('B', new Date(Date.UTC(2021, 5, 15, 12))),
+    ];
+    const { cohorts } = retention(all, firstPlayMap(all));
+    expect(cohorts.map((c) => c.year)).toEqual([2020, 2021]);
+    const c20 = cohorts[0]!;
+    expect(c20.artists).toBe(1);
+    expect(c20.total).toBe(2);
+    expect(c20.months[0]).toBe(1); // debut month
+    expect(c20.months[2]).toBe(1); // two months later
+    expect(c20.months[1]).toBe(0);
+    expect(c20.shares[0]).toBeCloseTo(0.5);
+  });
+
+  it('reports the age by which half a cohort had been played', () => {
+    // 1 play at debut, 3 more a year later: the median play sits at month 12.
+    const all = [
+      mk('A', new Date(Date.UTC(2020, 0, 15, 12))),
+      ...[0, 1, 2].map((i) =>
+        mk('A', new Date(Date.UTC(2021, 0, 15, 12 + i))),
+      ),
+    ];
+    const { cohorts } = retention(all, firstPlayMap(all));
+    expect(cohorts[0]!.halfLifeMonths).toBe(12);
+  });
+
+  it('marks recent cohorts as only partly observed', () => {
+    const all = [
+      mk('Old', new Date(Date.UTC(2020, 0, 15, 12))),
+      mk('New', new Date(Date.UTC(2023, 0, 15, 12))),
+      mk('New', new Date(Date.UTC(2023, 6, 15, 12))), // last month in the data
+    ];
+    const { cohorts } = retention(all, firstPlayMap(all));
+    const byYear = new Map(cohorts.map((c) => [c.year, c]));
+    // Data ends Jul 2023: the 2020 cohort has 42 months of observation, the
+    // 2023 one only 6 — so its later columns are unobserved, not empty.
+    expect(byYear.get(2020)!.fullyObservedMonths).toBe(42);
+    expect(byYear.get(2023)!.fullyObservedMonths).toBe(6);
+  });
+
+  it('uses full-history debuts, so an old artist is never a new cohort', () => {
+    const all = [
+      mk('A', new Date(Date.UTC(2019, 0, 15, 12))),
+      mk('A', new Date(Date.UTC(2024, 0, 15, 12))),
+    ];
+    // Even when only the 2024 play is passed, a full-history first-play map
+    // keeps A in the 2019 cohort at age 60 months.
+    const { cohorts } = retention(all.slice(1), firstPlayMap(all));
+    expect(cohorts.map((c) => c.year)).toEqual([2019]);
+    expect(cohorts[0]!.months[60]).toBe(1);
+  });
+
+  it('drops ages beyond the cap', () => {
+    const all = [
+      mk('A', new Date(Date.UTC(2010, 0, 15, 12))),
+      mk('A', new Date(Date.UTC(2025, 0, 15, 12))), // 180 months later
+    ];
+    const { cohorts } = retention(all, firstPlayMap(all), { maxMonths: 24 });
+    expect(cohorts[0]!.total).toBe(1); // only the debut play survives the cap
   });
 });

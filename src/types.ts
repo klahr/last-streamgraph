@@ -32,6 +32,8 @@ export type View =
   | 'genrehours'
   | 'albumdepth'
   | 'sessions'
+  | 'yoy'
+  | 'retention'
   | 'punchcard'
   | 'calendar'
   | 'seasonal'

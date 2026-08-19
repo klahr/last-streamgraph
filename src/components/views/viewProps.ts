@@ -13,8 +13,10 @@ import type {
   ObsessionData,
   Punchcard,
   RankData,
+  RetentionData,
   SessionsData,
   Tenure,
+  YearOverYearData,
 } from '../../utils/analytics';
 
 /** Common display-only props shared by every auxiliary visualization. */
@@ -76,6 +78,14 @@ export interface AlbumDepthProps extends DisplayProps {
 
 export interface SessionsProps extends DisplayProps {
   data: SessionsData;
+}
+
+export interface YearOverYearProps extends DisplayProps {
+  data: YearOverYearData;
+}
+
+export interface RetentionProps extends DisplayProps {
+  data: RetentionData;
 }
 
 export interface ForecastProps {

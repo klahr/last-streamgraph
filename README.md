@@ -42,6 +42,13 @@ Once you've connected your account, you can explore your music in lots of ways:
 - **Tenure** — lifers vs. flings. One bar per artist, from their first play to
   their last, so you can see who stayed for a decade and who burned bright for a
   fortnight.
+- **Retention** — how fast each year's discoveries faded. Artists are grouped by
+  the year you found them, then laid out by months since their debut, with a
+  half-life per year: did your 2019 obsessions burn out in six weeks while your
+  2015 ones settled into rotation?
+- **Year on year** — every year as its own cumulative curve on one day-of-year
+  axis. Which year was the heavy one, and are you ahead of where you were this
+  time last year?
 - **Genre clock** — what you play at 3am. Each genre gets its own row of 24 hours,
   scaled to its own peak and sorted from morning listening down to nocturnal, so
   the small genres' habits show up as clearly as the big ones'.
