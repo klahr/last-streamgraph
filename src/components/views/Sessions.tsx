@@ -14,6 +14,18 @@ import { useMemo } from 'react';
 import { interpolatorFor } from '../../utils/colors';
 import type { SessionsProps } from './viewProps';
 
+/**
+ * Bar heights are computed in pixels, not percentages: the columns are
+ * bottom-aligned flex items, so their height is content-based, and a percentage
+ * height against an auto-height parent resolves to zero — every bar would
+ * collapse. These budgets are the `h-40` (160px) panel minus the label rows and
+ * the flex gaps above and below the bar.
+ */
+const BAR_AREA_LABELLED = 118; // value label above + axis label below
+const BAR_AREA_PLAIN = 132; // axis label below only
+/** Keep a non-zero count visible even when it rounds to nothing. */
+const MIN_BAR = 2;
+
 export function Sessions({ data, palette }: SessionsProps) {
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
 
@@ -89,7 +101,9 @@ export function Sessions({ data, palette }: SessionsProps) {
                 <div
                   className="w-full rounded-t"
                   style={{
-                    height: `${Math.max(b.count ? 2 : 0, (b.count / binMax) * 100)}%`,
+                    height: b.count
+                      ? `${Math.max(MIN_BAR, (b.count / binMax) * BAR_AREA_LABELLED)}px`
+                      : 0,
                     backgroundColor: interp(
                       0.2 + (0.7 * i) / Math.max(1, lengthBins.length - 1),
                     ),
@@ -116,7 +130,9 @@ export function Sessions({ data, palette }: SessionsProps) {
                 <div
                   className="w-full rounded-t"
                   style={{
-                    height: `${Math.max(c ? 2 : 0, (c / hourMax) * 100)}%`,
+                    height: c
+                      ? `${Math.max(MIN_BAR, (c / hourMax) * BAR_AREA_PLAIN)}px`
+                      : 0,
                     backgroundColor: interp(0.2 + 0.7 * (c / hourMax)),
                   }}
                 />
