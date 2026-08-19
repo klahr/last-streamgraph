@@ -20,7 +20,7 @@ import { CalendarHeatmap } from './components/views/CalendarHeatmap';
 import { SeasonalRadial } from './components/views/SeasonalRadial';
 import { DiscoveryTimeline } from './components/views/DiscoveryTimeline';
 import { RankBump } from './components/views/RankBump';
-import { GenreSunburst } from './components/views/GenreSunburst';
+import { Sunburst } from './components/views/Sunburst';
 import { ArtistNetwork } from './components/views/ArtistNetwork';
 import { Forecast } from './components/views/Forecast';
 import { Obsessions } from './components/views/Obsessions';
@@ -55,7 +55,7 @@ const VIEWS: { id: View; label: string }[] = [
   { id: 'seasonal', label: 'Seasonal' },
   { id: 'discovery', label: 'Discovery' },
   { id: 'rankbump', label: 'Rank' },
-  { id: 'sunburst', label: 'Genres' },
+  { id: 'sunburst', label: 'Breakdown' },
   { id: 'network', label: 'Network' },
 ];
 
@@ -63,13 +63,13 @@ const VIEWS: { id: View; label: string }[] = [
  * so the in-app copy and the code documentation can't drift. */
 const VIEW_DESCRIPTIONS: Record<View, string> = {
   streamgraph: 'Listening volume over time as flowing, stacked streams — one per top artist/genre/album.',
-  forecast: 'A naive extrapolation of your next 6 months per top series — moving average + least-squares trend. For fun, not prophecy.',
+  forecast: 'A naive extrapolation of your next 6 months per top series — damped trend + seasonality, graded surging to dead. For fun, not prophecy.',
   punchcard: 'When you listen by weekday × hour (your local time). Brighter cells = more plays in that slot.',
   calendar: 'A GitHub-style daily heatmap of plays, one cell per day, weeks as columns.',
   seasonal: 'Total plays per calendar month, summed across years, as 12 wedges sized by listening.',
   discovery: 'When each artist first entered your library, over a cumulative distinct-artists curve.',
   rankbump: 'How the top artists\' ranking shifts across time buckets — rank 1 at the top, lines break on drop-out.',
-  sunburst: 'A two-ring breakdown: top genres inner, each genre\'s top artists outer.',
+  sunburst: 'A two-ring breakdown, one level apart: genres → their artists, artists → their albums, or albums → their tracks, following Group-by.',
   network: 'Artists you play on the same days pull together in a force-directed graph; edges = shared listening days.',
   obsessions: 'The tracks you played into the ground — ranked by burst (peak plays in any 7 days), not by total.',
   novelty: 'Exploring or comforting yourself? Plays split into brand-new artists vs. ones you already knew, per bucket.',
@@ -222,10 +222,10 @@ export default function App() {
 
   const { from, to } = resolveRange(range, span.minMs, span.maxMs);
 
-  // Genre enrichment runs when genres are needed: genre grouping, the sunburst,
-  // or the forecast (which forecasts by genre when available).
-  const needGenres =
-    config.groupBy === 'genre' || view === 'sunburst' || view === 'forecast';
+  // Genre enrichment runs when genres are needed. The sunburst no longer
+  // forces it — it only keys by genre under genre grouping, which the first
+  // clause already covers.
+  const needGenres = config.groupBy === 'genre' || view === 'forecast';
   const genre = useGenreEnrichment(
     hasCreds ? effectiveCreds : null,
     scrobbles,
@@ -300,10 +300,11 @@ export default function App() {
         ) : null;
       case 'sunburst':
         return analyticsResult?.view === 'sunburst' ? (
-          <GenreSunburst
+          <Sunburst
             data={analyticsResult.payload}
             size={size}
             palette={config.palette}
+            groupBy={config.groupBy}
             hasGenres={Object.keys(genre.genreMap).length > 0}
           />
         ) : null;

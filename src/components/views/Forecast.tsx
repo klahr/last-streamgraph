@@ -30,7 +30,11 @@ export function Forecast({ data: series, by }: ForecastProps) {
     <div className="h-full w-full overflow-auto p-4">
       <p className="mb-3 text-xs text-slate-500">
         Projecting the next {FORECAST_HORIZON} months by {by} —
-        moving average + least-squares trend with an uncertainty band. A naive
+        moving average + a damped trend with month-of-year seasonality, inside a
+        band that widens with distance. The faint dashed line over the history
+        is the same model run backwards — where it tracks, the forecast has
+        earned a little trust. Each card is graded ↑↑ surging → ☠ dead by how
+        fast it's moving relative to its own average. Still a naive
         extrapolation, for fun.
       </p>
       <div className="flex flex-wrap gap-3">
@@ -44,10 +48,20 @@ export function Forecast({ data: series, by }: ForecastProps) {
   );
 }
 
+/**
+ * The momentum ramp, strongest growth first. Hue carries direction (green up,
+ * warm down) and lightness carries strength, so the two growth states stay
+ * legibly "good" instead of a mild gain being painted warning-orange. Every
+ * state also has its own glyph and its own word — on a green/yellow/orange
+ * ramp the colour is the redundant channel, not the load-bearing one.
+ */
 const TREND = {
-  rising: { arrow: '↑', cls: 'text-emerald-400', stroke: '#34d399' },
-  falling: { arrow: '↓', cls: 'text-red-400', stroke: '#f87171' },
+  surging: { arrow: '↑↑', cls: 'text-emerald-300', stroke: '#6ee7b7' },
+  rising: { arrow: '↑', cls: 'text-emerald-500', stroke: '#10b981' },
   flat: { arrow: '→', cls: 'text-slate-400', stroke: '#94a3b8' },
+  easing: { arrow: '↓', cls: 'text-yellow-400', stroke: '#facc15' },
+  falling: { arrow: '↓↓', cls: 'text-orange-400', stroke: '#fb923c' },
+  dead: { arrow: '☠', cls: 'text-slate-500', stroke: '#64748b' },
 } as const;
 
 function ForecastCard({ s }: { s: ForecastSeries }) {
@@ -78,6 +92,7 @@ function ForecastCard({ s }: { s: ForecastSeries }) {
     1,
     ...s.history.map((p) => p.value),
     ...s.projection.map((p) => p.hi),
+    ...s.fitted.map((v) => v ?? 0),
   );
   const y = scaleLinear().domain([0, yMax]).nice().range([innerH, 0]);
 
@@ -94,9 +109,22 @@ function ForecastCard({ s }: { s: ForecastSeries }) {
     .y((d) => y(d.v))
     .curve(curveMonotoneX);
 
+  // The projection's own model, drawn back over the months it was fitted on:
+  // where this hugs the solid history line the dashed future is worth some
+  // trust, where it doesn't it isn't.
+  const fitPts = s.fitted
+    .map((v, i) => ({ v, i }))
+    .filter((d): d is { v: number; i: number } => d.v != null);
+  const fitLine = line<{ v: number; i: number }>()
+    .x((d) => xHist(d.i))
+    .y((d) => y(d.v))
+    .curve(curveMonotoneX);
+
   // Projection path continues from the last history point (which sits at the
   // divider, xProj(0)).
-  const last = { value: s.history[n - 1]?.value ?? 0 };
+  // Start the projection from the fitted endpoint, not the raw last month, so
+  // the backfit and the forecast meet at the divider instead of jumping.
+  const last = { value: s.fitted[n - 1] ?? s.history[n - 1]?.value ?? 0 };
   const projLine = line<{ value: number }>()
     .x((_, i) => xProj(i))
     .y((d) => y(d.value))
@@ -110,12 +138,24 @@ function ForecastCard({ s }: { s: ForecastSeries }) {
     .curve(curveMonotoneX);
 
   return (
-    <div ref={cardRef} className="rounded-md border border-slate-800 bg-slate-900/60 p-2">
+    <div
+      ref={cardRef}
+      className={`rounded-md border border-slate-800 bg-slate-900/60 p-2 ${
+        s.trend === 'dead' ? 'opacity-60' : ''
+      }`}
+    >
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="truncate text-sm text-slate-200" title={s.key}>
           {s.key}
         </span>
-        <span className={`shrink-0 text-sm font-medium ${t.cls}`} title={`slope ${s.slope.toFixed(1)}/mo`}>
+        <span
+          className={`shrink-0 text-sm font-medium ${t.cls}`}
+          title={
+            s.trend === 'dead'
+              ? `faded out — slope ${s.slope.toFixed(1)}/mo`
+              : `slope ${s.slope.toFixed(1)}/mo`
+          }
+        >
           {t.arrow} {s.trend}
         </span>
       </div>
@@ -133,6 +173,14 @@ function ForecastCard({ s }: { s: ForecastSeries }) {
           <line x1={histW} x2={histW} y2={innerH} stroke="#334155" strokeDasharray="2 2" />
           <path d={bandArea(s.projection) ?? ''} fill={t.stroke} fillOpacity={0.12} />
           <path d={smaLine(smaPts) ?? ''} fill="none" stroke="#64748b" strokeWidth={1} strokeOpacity={0.7} />
+          <path
+            d={fitLine(fitPts) ?? ''}
+            fill="none"
+            stroke={t.stroke}
+            strokeWidth={1}
+            strokeDasharray="4 3"
+            strokeOpacity={0.45}
+          />
           <path d={histLine(s.history) ?? ''} fill="none" stroke="#cbd5e1" strokeWidth={1.5} />
           <path d={projLine(projData) ?? ''} fill="none" stroke={t.stroke} strokeWidth={1.5} strokeDasharray="4 3" />
         </g>

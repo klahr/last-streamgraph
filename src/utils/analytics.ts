@@ -189,7 +189,7 @@ export function rankOverTime(
   return { buckets, series };
 }
 
-/* ------------------------- Sunburst hierarchy ---------------------------- */
+/* ------------------------- Breakdown hierarchy --------------------------- */
 
 export interface HierNode {
   name: string;
@@ -197,35 +197,46 @@ export interface HierNode {
   children?: HierNode[];
 }
 
-/** genre → artist hierarchy for a sunburst/treemap (top genres, top artists each). */
-export function genreHierarchy(
+/**
+ * Two-ring hierarchy for a sunburst/treemap: the top `topInner` groups by play
+ * count, each holding its own top `topOuterPerInner` members.
+ *
+ * Both levels are caller-keyed, so one shape serves every grouping the view
+ * offers — genre → artist, artist → album, album → track. Anything outside a
+ * cut is dropped rather than pooled into an "other" wedge: the rings are for
+ * reading composition, and a giant grey remainder crowds out what you came to
+ * look at.
+ */
+export function breakdownHierarchy(
   scrobbles: readonly CountableScrobble[],
-  genreMap: Record<string, string>,
-  opts: { topGenres: number; topArtistsPerGenre: number },
+  innerOf: (s: CountableScrobble) => string,
+  outerOf: (s: CountableScrobble) => string,
+  opts: { topInner: number; topOuterPerInner: number },
 ): HierNode {
-  const byGenre = new Map<string, Map<string, number>>();
+  const byInner = new Map<string, Map<string, number>>();
   for (const s of scrobbles) {
-    const genre = genreMap[s.artist.toLowerCase()] ?? 'Unknown';
-    let artists = byGenre.get(genre);
-    if (!artists) {
-      artists = new Map();
-      byGenre.set(genre, artists);
+    const inner = innerOf(s);
+    let members = byInner.get(inner);
+    if (!members) {
+      members = new Map();
+      byInner.set(inner, members);
     }
-    artists.set(s.artist, (artists.get(s.artist) ?? 0) + 1);
+    const outer = outerOf(s);
+    members.set(outer, (members.get(outer) ?? 0) + 1);
   }
-  const genreTotal = (m: Map<string, number>) =>
+  const groupTotal = (m: Map<string, number>) =>
     [...m.values()].reduce((a, b) => a + b, 0);
-  const genres = [...byGenre.entries()]
-    .sort((a, b) => genreTotal(b[1]) - genreTotal(a[1]))
-    .slice(0, opts.topGenres);
+  const inners = [...byInner.entries()]
+    .sort((a, b) => groupTotal(b[1]) - groupTotal(a[1]))
+    .slice(0, opts.topInner);
   return {
     name: 'All',
-    children: genres.map(([genre, artists]) => ({
-      name: genre,
-      children: [...artists.entries()]
+    children: inners.map(([name, members]) => ({
+      name,
+      children: [...members.entries()]
         .sort((a, b) => b[1] - a[1])
-        .slice(0, opts.topArtistsPerGenre)
-        .map(([name, value]) => ({ name, value })),
+        .slice(0, opts.topOuterPerInner)
+        .map(([outer, value]) => ({ name: outer, value })),
     })),
   };
 }
@@ -316,11 +327,89 @@ export interface ForecastSeries {
   history: { ms: number; value: number }[];
   /** Simple moving average aligned to `history` (null until the window fills). */
   sma: (number | null)[];
+  /**
+   * The model evaluated over the months it was fitted on, aligned to
+   * `history` (null before the fit window starts). Lets you eyeball how well
+   * the projection's own method tracked the past before trusting its future.
+   */
+  fitted: (number | null)[];
   /** Projected future months with a ±band. */
   projection: { ms: number; value: number; lo: number; hi: number }[];
   slope: number;
-  trend: 'rising' | 'falling' | 'flat';
+  /**
+   * Where the series sits on the momentum ramp, from `surging` down to `dead`.
+   * The four moving states are slope bins normalised by the series' own
+   * monthly average; `dead` is categorical (already at zero), not a bin.
+   */
+  trend: 'surging' | 'rising' | 'flat' | 'easing' | 'falling' | 'dead';
 }
+
+/**
+ * Trend damping per month ahead. A pure linear extrapolation runs off to
+ * absurdity (or slams into the zero clamp) within a few months; damping bends
+ * it toward a plateau, which is both the better-behaved forecast and the
+ * reason the projection reads as a curve rather than a ruler.
+ */
+const DAMPING = 0.85;
+/** History needed before month-of-year effects are estimated at all. */
+const SEASONAL_MIN_MONTHS = 24;
+
+/**
+ * Additive month-of-year effects (index 0 = January), or null when there isn't
+ * enough history to estimate them.
+ *
+ * Textbook classical decomposition: a centred 12-month moving average as the
+ * trend-cycle, the detrended remainder averaged per calendar month, shrunk
+ * toward zero by how many years actually support each month, then re-centred
+ * so the indices sum to zero — they redistribute plays across the year, they
+ * never invent or destroy any.
+ */
+function seasonalIndices(history: readonly { ms: number; value: number }[]): number[] | null {
+  const n = history.length;
+  if (n < SEASONAL_MIN_MONTHS) return null;
+
+  const trend = history.map((_, i) => {
+    if (i < 6 || i > n - 7) return null;
+    let sum = 0;
+    for (let j = i - 6; j <= i + 6; j++) {
+      // Half weight on the two endpoints so a 13-point window spans exactly
+      // 12 months and can't favour whichever calendar month sits at the edge.
+      sum += (j === i - 6 || j === i + 6 ? 0.5 : 1) * history[j]!.value;
+    }
+    return sum / 12;
+  });
+
+  const buckets: number[][] = Array.from({ length: 12 }, () => []);
+  history.forEach((p, i) => {
+    const t = trend[i];
+    if (t != null) buckets[new Date(p.ms).getUTCMonth()]!.push(p.value - t);
+  });
+
+  const shrunk = buckets.map((b) => {
+    if (!b.length) return 0;
+    const mean = b.reduce((a, v) => a + v, 0) / b.length;
+    // Two observed Decembers make a December effect a guess; six make it a
+    // pattern. k/(k+1) pulls the thin ones most.
+    return mean * (b.length / (b.length + 1));
+  });
+  const centre = shrunk.reduce((a, v) => a + v, 0) / 12;
+  return shrunk.map((v) => v - centre);
+}
+
+/**
+ * Slope bin edges, as a fraction of the series' own monthly average — so a
+ * 200-plays/month genre and a 4-plays/month one are graded on the same scale.
+ * Inside ±{@link FLAT_FRAC} nothing is really happening; beyond
+ * ±{@link STRONG_FRAC} the series is gaining or shedding a quarter of its
+ * typical monthly volume every month.
+ */
+const FLAT_FRAC = 0.05;
+const STRONG_FRAC = 0.25;
+
+/** Months of recent history considered when deciding a series has died out. */
+const DEAD_TAIL_MONTHS = 3;
+/** Absolute plays/month floor below which a series counts as dead regardless. */
+const DEAD_FLOOR = 0.5;
 
 /** Step one calendar month forward from a UTC month-start. */
 function nextMonth(ms: number): number {
@@ -330,8 +419,16 @@ function nextMonth(ms: number): number {
 
 /**
  * TA-style projection: monthly plays per top-`topN` series → SMA + a
- * least-squares trend over a recent window, extrapolated `horizon` months
- * ahead with a residual-based uncertainty band. Naive by design.
+ * least-squares trend over a recent window, carried `horizon` months ahead as
+ * a *damped* trend plus month-of-year seasonality, inside a band that widens
+ * with distance. Naive by design.
+ *
+ * The damping and the seasonal terms are what give the projection its shape:
+ * it eases toward a plateau instead of running off in a straight line, and it
+ * inherits the series' own annual rhythm where the history is long enough to
+ * show one. Nothing is added for texture — every wiggle is an estimated
+ * month-of-year effect, so a flat projection means no seasonality was found,
+ * not that the model gave up.
  *
  * The trend widens with the selected range: a short interval fits a reactive
  * recent trend, a large interval fits a longer (but still recent-anchored)
@@ -421,13 +518,37 @@ export function forecast(
       ss += (p.value - fit) ** 2;
     });
     const resStd = n > 2 ? Math.sqrt(ss / (n - 2)) : 0;
-    const band = 1.96 * resStd;
 
+    const seasonal = seasonalIndices(history);
+    const seasonAt = (ms: number) =>
+      seasonal ? seasonal[new Date(ms).getUTCMonth()]! : 0;
+
+    // The model over the months it actually saw, so the same curve can be
+    // drawn across the history and judged against what really happened.
+    const fitStart = history.length - n;
+    const fitted = history.map((p, i) =>
+      i < fitStart
+        ? null
+        : Math.max(0, intercept + slope * (i - fitStart) + seasonAt(p.ms)),
+    );
+
+    // Anchor on the fitted value at the last observed month rather than the
+    // raw count — one freak month shouldn't launch the whole projection.
+    const lastFit = intercept + slope * (n - 1);
     const projection: ForecastSeries['projection'] = [];
     let ms = maxMs;
+    let phiPow = 1;
+    let carried = 0;
     for (let h = 1; h <= horizon; h++) {
       ms = nextMonth(ms);
-      const value = Math.max(0, intercept + slope * (n - 1 + h));
+      // Damped trend: each further month contributes phi^h of the slope, so
+      // the curve bends toward a plateau at lastFit + slope*phi/(1-phi).
+      phiPow *= DAMPING;
+      carried += phiPow;
+      const value = Math.max(0, lastFit + slope * carried + seasonAt(ms));
+      // Uncertainty compounds with distance — a constant band claimed month
+      // six was as knowable as month one.
+      const band = 1.96 * resStd * Math.sqrt(h);
       projection.push({
         ms,
         value,
@@ -437,11 +558,35 @@ export function forecast(
     }
 
     const monthlyAvg = (totals.get(key) ?? 0) / Math.max(1, history.length);
-    const flatThreshold = 0.05 * monthlyAvg;
-    const trend =
-      slope > flatThreshold ? 'rising' : slope < -flatThreshold ? 'falling' : 'flat';
+    const flatThreshold = FLAT_FRAC * monthlyAvg;
+    const strongThreshold = STRONG_FRAC * monthlyAvg;
 
-    return { key, total: totals.get(key) ?? 0, history, sma, projection, slope, trend };
+    // "Dead": the series has already faded out and isn't projected to come
+    // back. Both ends must be near zero — recent months *and* the end of the
+    // projection — so a steep but still-active decline stays 'falling'. The
+    // threshold is relative to the series' own monthly average (a 200-plays/mo
+    // genre at 3/mo is dead; a 4-plays/mo one isn't) with an absolute floor so
+    // tiny series can't be "5% of almost nothing" forever.
+    const deadThreshold = Math.max(DEAD_FLOOR, FLAT_FRAC * monthlyAvg);
+    const tailStart = Math.max(0, history.length - DEAD_TAIL_MONTHS);
+    const tail = history.slice(tailStart);
+    const tailMean = tail.reduce((a, p) => a + p.value, 0) / Math.max(1, tail.length);
+    const projEnd = projection[projection.length - 1]?.value ?? tailMean;
+    const dead = tailMean <= deadThreshold && projEnd <= deadThreshold;
+
+    const trend = dead
+      ? 'dead'
+      : slope > strongThreshold
+        ? 'surging'
+        : slope > flatThreshold
+          ? 'rising'
+          : slope < -strongThreshold
+            ? 'falling'
+            : slope < -flatThreshold
+              ? 'easing'
+              : 'flat';
+
+    return { key, total: totals.get(key) ?? 0, history, sma, fitted, projection, slope, trend };
   });
 }
 

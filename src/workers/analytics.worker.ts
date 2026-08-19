@@ -16,7 +16,7 @@ import {
   seasonal,
   discovery,
   rankOverTime,
-  genreHierarchy,
+  breakdownHierarchy,
   networkGraph,
   forecast,
   obsessions,
@@ -124,6 +124,26 @@ const genreOf = (s: CountableScrobble) =>
   genreMap[s.artist.toLowerCase()] ?? UNKNOWN_GENRE;
 const artistKey = (s: CountableScrobble) => s.artist;
 const albumKey = (s: CountableScrobble) => s.album || 'Unknown Album';
+const trackKey = (s: CountableScrobble) => s.track || 'Unknown Track';
+
+/**
+ * The sunburst's two rings, one level apart: genres break into their artists,
+ * artists into their albums, albums into their tracks. Genre grouping keys off
+ * {@link genreOf} unconditionally — before the tag fetch lands every artist is
+ * "Unknown", which the view detects and explains rather than quietly drawing.
+ */
+function breakdownKeys(
+  groupBy: GroupBy,
+): [(s: CountableScrobble) => string, (s: CountableScrobble) => string] {
+  switch (groupBy) {
+    case 'genre':
+      return [genreOf, artistKey];
+    case 'album':
+      return [albumKey, trackKey];
+    default:
+      return [artistKey, albumKey];
+  }
+}
 
 /** Safety bound: a `.*`-ish filter shouldn't render hundreds of cards. */
 const FORECAST_MAX_KEYS = 100;
@@ -182,8 +202,13 @@ function compute(request: AnalyticsRequest): unknown {
       return discovery(slice, { minPlays: 5 });
     case 'rankbump':
       return rankOverTime(slice, resolution, Math.min(topN, 15), (s) => s.artist);
-    case 'sunburst':
-      return genreHierarchy(slice, genreMap, { topGenres: 12, topArtistsPerGenre: 12 });
+    case 'sunburst': {
+      const [innerOf, outerOf] = breakdownKeys(groupBy);
+      return breakdownHierarchy(slice, innerOf, outerOf, {
+        topInner: 12,
+        topOuterPerInner: 12,
+      });
+    }
     case 'network':
       return networkGraph(slice, genreMap, {
         topN,

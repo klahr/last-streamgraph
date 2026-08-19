@@ -1,20 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /**
- * Genre sunburst: a two-ring radial breakdown of your listening. The inner ring
- * is your top genres (sized by total plays); the outer ring is each genre's top
- * artists, drawn in shades of the parent genre's color so a ring reads as
- * "variations within a genre".
+ * Sunburst: a two-ring radial breakdown of your listening, one level apart.
+ * Group by genres and the rings are genres → their artists; by artists and
+ * they're artists → their albums; by albums and they're albums → their tracks.
+ * The inner ring is sized by total plays and the outer ring is drawn in shades
+ * of its parent's color, so a ring reads as "what's inside this one".
  */
 import { useMemo } from 'react';
 import { arc, hierarchy, partition } from 'd3';
 import { interpolatorFor } from '../../utils/colors';
 import type { SunburstProps } from './viewProps';
 
-export function GenreSunburst({ data: root, size, palette, hasGenres }: SunburstProps) {
+export function Sunburst({ data: root, size, palette, groupBy, hasGenres }: SunburstProps) {
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
 
-  if (!hasGenres || !root.children?.length) {
-    return <Message text="Switch Group-by to Genres (and let genres finish fetching) to see this." />;
+  // Only genre grouping depends on the rate-limited tag fetch; artists and
+  // albums are in the scrobbles already and draw immediately.
+  if (groupBy === 'genre' && !hasGenres) {
+    return <Message text="Genres are still being tagged — this fills in as they arrive, or switch Group-by to Artists or Albums." />;
+  }
+  if (!root.children?.length) {
+    return <Message text="No scrobbles in range yet." />;
   }
 
   const margin = 8;
@@ -27,17 +33,17 @@ export function GenreSunburst({ data: root, size, palette, hasGenres }: Sunburst
       .sort((a, b) => (b.value ?? 0) - (a.value ?? 0)),
   );
 
-  // Inner ring (depth 1 = genres) occupies the first radius band; the outer
-  // ring (depth 2 = artists) the second. Skip the root (depth 0).
+  // Inner ring (depth 1) occupies the first radius band, the outer ring
+  // (depth 2) the second. Skip the root (depth 0).
   const inner = radius * 0.55;
   const ringFor = (depth: number) =>
     depth === 1 ? { y0: 0, y1: inner } : { y0: inner, y1: radius };
 
-  const genres = layout.children ?? [];
-  const genreColor = new Map<string, string>();
-  const denom = Math.max(1, genres.length - 1);
-  genres.forEach((g, i) => {
-    genreColor.set(g.data.name, interp(0.05 + (0.9 * i) / denom));
+  const groups = layout.children ?? [];
+  const groupColor = new Map<string, string>();
+  const denom = Math.max(1, groups.length - 1);
+  groups.forEach((g, i) => {
+    groupColor.set(g.data.name, interp(0.05 + (0.9 * i) / denom));
   });
 
   const arcGen = arc<{ x0: number; x1: number; y0: number; y1: number }>()
@@ -58,13 +64,13 @@ export function GenreSunburst({ data: root, size, palette, hasGenres }: Sunburst
             const ring = ringFor(d.depth);
             const path = arcGen({ x0: d.x0, x1: d.x1, y0: ring.y0, y1: ring.y1 });
             if (!path) return null;
-            const isGenre = d.depth === 1;
-            const genreName = isGenre ? d.data.name : (d.parent?.data.name ?? '');
-            const base = genreColor.get(genreName) ?? '#5b6470';
+            const isInner = d.depth === 1;
+            const parentName = isInner ? d.data.name : (d.parent?.data.name ?? '');
+            const base = groupColor.get(parentName) ?? '#5b6470';
             const plays = (d.value ?? 0).toLocaleString();
-            const title = isGenre
-              ? `${genreName} — ${plays} plays`
-              : `${genreName} › ${d.data.name} — ${plays} plays`;
+            const title = isInner
+              ? `${parentName} — ${plays} plays`
+              : `${parentName} › ${d.data.name} — ${plays} plays`;
             const wide = d.x1 - d.x0 > 0.12;
             const labelAngle = (d.x0 + d.x1) / 2;
             const labelR = (ring.y0 + ring.y1) / 2;
@@ -75,13 +81,13 @@ export function GenreSunburst({ data: root, size, palette, hasGenres }: Sunburst
                 <path
                   d={path}
                   fill={base}
-                  fillOpacity={isGenre ? 0.95 : 0.55}
+                  fillOpacity={isInner ? 0.95 : 0.55}
                   stroke="#0f172a"
                   strokeWidth={0.75}
                 >
                   <title>{title}</title>
                 </path>
-                {isGenre && wide && (
+                {isInner && wide && (
                   <text
                     transform={`rotate(${rotate}) translate(${labelR},0)${flip ? ' rotate(180)' : ''}`}
                     textAnchor="middle"

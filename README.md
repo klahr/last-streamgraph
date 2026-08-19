@@ -26,12 +26,13 @@ Once you've connected your account, you can explore your music in lots of ways:
 - **Calendar** — every day you've ever scrobbled, laid out like a calendar and
   shaded by how much you listened — an easy way to spot streaks, quiet spells, and
   your busiest months.
-- **Sunburst** — your library broken into genres, and each genre into its top
-  artists, so you can finally see just how much black metal, soundtrack, or pop you
-  really listen to.
+- **Breakdown** — your library as two rings, one level apart: genres and each
+  genre's top artists, or artists and their albums, or albums and their tracks —
+  whichever Group-by is set to. So you can finally see just how much black metal,
+  soundtrack, or pop you really listen to.
 - **Forecast** 🔮 — for fun, it looks at the recent trend of each genre and
-  sketches where it *might* be heading over the next few months — rising, falling,
-  or holding steady. (A playful guess, not a real prediction — your next obsession
+  sketches where it *might* be heading over the next few months — from surging
+  down through easing and falling to long dead. (A playful guess, not a real prediction — your next obsession
   is always a surprise.)
 - **Obsessions** — the tracks you played into the ground. Not your favourites by
   total plays, but your *binges*: the song that took over one week in March and

@@ -7,6 +7,7 @@ import {
   dailyCounts,
   rankOverTime,
   forecast,
+  breakdownHierarchy,
   networkGraph,
   obsessions,
   novelty,
@@ -141,7 +142,18 @@ describe('rankOverTime', () => {
 });
 
 describe('forecast', () => {
-  it('projects horizon months and flags a rising trend', () => {
+  /** Trend label for a series with these monthly play counts. */
+  const trendOf = (counts: number[]) => {
+    const s: Scrobble[] = [];
+    counts.forEach((c, m) => {
+      for (let k = 0; k < c; k++) s.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+    });
+    return forecast(s, (x) => x.artist, {
+      topN: 1, horizon: 3, smaWindow: 3, regWindow: 12,
+    })[0]!.trend;
+  };
+
+  it('projects horizon months and flags a growing trend', () => {
     // Monotonically increasing monthly plays for A over 6 months.
     const s: Scrobble[] = [];
     for (let m = 0; m < 6; m++) {
@@ -156,7 +168,8 @@ describe('forecast', () => {
     expect(series!.key).toBe('A');
     expect(series!.history).toHaveLength(6);
     expect(series!.projection).toHaveLength(3);
-    expect(series!.trend).toBe('rising');
+    // +1/month against a 3.5/month average clears the strong bin's 25% edge.
+    expect(series!.trend).toBe('surging');
     expect(series!.slope).toBeGreaterThan(0);
   });
 
@@ -175,6 +188,131 @@ describe('forecast', () => {
     });
     expect(out).toHaveLength(1);
     expect(out[0]!.key).toBe('B');
+  });
+
+  it('flags a faded-out series as dead', () => {
+    // A is played heavily for 6 months, then stops entirely for 6. The recent
+    // tail and the projection are both ~0, so it's dead rather than falling.
+    const s: Scrobble[] = [];
+    for (let m = 0; m < 6; m++) {
+      for (let k = 0; k < 20; k++) s.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+    }
+    // Keep the month range going to month 11 with a different artist.
+    for (let m = 6; m < 12; m++) s.push(mk('B', new Date(Date.UTC(2025, m, 5))));
+    const [series] = forecast(s, (x) => x.artist, {
+      topN: 1,
+      horizon: 3,
+      smaWindow: 3,
+      regWindow: 12,
+    });
+    expect(series!.key).toBe('A');
+    expect(series!.trend).toBe('dead');
+  });
+
+  it('keeps a steep but still-active decline as falling, not dead', () => {
+    // A sheds roughly a third of its average every month but is still being
+    // played at the end of the range, so it's falling — not yet dead.
+    expect(trendOf([40, 32, 24, 16, 8, 4])).toBe('falling');
+  });
+
+  it('grades momentum into the full ramp', () => {
+    // Bin edges are ±5% (flat) and ±25% (strong) of the series' own monthly
+    // average, so each gradient below lands one step further along.
+    expect(trendOf([4, 12, 20, 28, 36, 44])).toBe('surging');
+    expect(trendOf([17, 19, 21, 23, 25, 27])).toBe('rising');
+    expect(trendOf([20, 20, 20, 20, 20, 20])).toBe('flat');
+    expect(trendOf([27, 25, 23, 21, 19, 17])).toBe('easing');
+    expect(trendOf([44, 36, 28, 20, 12, 4])).toBe('falling');
+  });
+
+  it('grades on the series own scale, not raw play volume', () => {
+    // +2/month on a 22-play average and +20/month on a 220-play average are
+    // the same story; volume alone must not promote one up the ramp.
+    expect(trendOf([170, 190, 210, 230, 250, 270])).toBe(
+      trendOf([17, 19, 21, 23, 25, 27]),
+    );
+  });
+
+  it('bends the projection instead of extrapolating a straight line', () => {
+    // Steady growth of +1 play/month. A linear extrapolation would keep adding
+    // exactly 1/month forever; the damped trend adds less each month out.
+    const s: Scrobble[] = [];
+    for (let m = 0; m < 12; m++) {
+      for (let k = 0; k <= m; k++) s.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+    }
+    const [series] = forecast(s, (x) => x.artist, {
+      topN: 1, horizon: 4, smaWindow: 3, regWindow: 12,
+    });
+    const p = series!.projection.map((q) => q.value);
+    const steps = p.slice(1).map((v, i) => v - p[i]!);
+    // Each step forward is smaller than the one before it — a curve, not a ray.
+    steps.slice(1).forEach((step, i) => {
+      expect(step).toBeLessThan(steps[i]!);
+    });
+  });
+
+  it('widens the uncertainty band with distance', () => {
+    // Noisy history so the residual stddev (and thus the band) is non-zero.
+    const s: Scrobble[] = [];
+    const counts = [5, 20, 6, 22, 4, 19, 7, 21, 5, 18, 8, 20];
+    counts.forEach((c, m) => {
+      for (let k = 0; k < c; k++) s.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+    });
+    const [series] = forecast(s, (x) => x.artist, {
+      topN: 1, horizon: 5, smaWindow: 3, regWindow: 12,
+    });
+    const widths = series!.projection.map((q) => q.hi - q.lo);
+    expect(widths[widths.length - 1]!).toBeGreaterThan(widths[0]!);
+  });
+
+  it('carries month-of-year seasonality into the projection', () => {
+    // Three years of a hard December spike and nothing else. The projection
+    // must reproduce the spike when it reaches a December, not average it away.
+    const s: Scrobble[] = [];
+    for (let year = 2022; year <= 2024; year++) {
+      for (let m = 0; m < 12; m++) {
+        const c = m === 11 ? 40 : 5;
+        for (let k = 0; k < c; k++) s.push(mk('A', new Date(Date.UTC(year, m, 5))));
+      }
+    }
+    // History ends Dec 2024, so a 12-month horizon lands on Dec 2025.
+    const [series] = forecast(s, (x) => x.artist, {
+      topN: 1, horizon: 12, smaWindow: 6, regWindow: 36,
+    });
+    const dec = series!.projection.find((q) => new Date(q.ms).getUTCMonth() === 11);
+    const others = series!.projection.filter((q) => new Date(q.ms).getUTCMonth() !== 11);
+    const otherMax = Math.max(...others.map((q) => q.value));
+    expect(dec!.value).toBeGreaterThan(otherMax);
+  });
+
+  it('leaves the projection unseasonal when history is under two years', () => {
+    // 18 months can't support month-of-year effects — fitted must stay defined
+    // and the December spike must not be extrapolated from a single sighting.
+    const s: Scrobble[] = [];
+    for (let m = 0; m < 18; m++) {
+      const c = m === 11 ? 40 : 5;
+      for (let k = 0; k < c; k++) s.push(mk('A', new Date(Date.UTC(2024, m, 5))));
+    }
+    const [series] = forecast(s, (x) => x.artist, {
+      topN: 1, horizon: 12, smaWindow: 6, regWindow: 24,
+    });
+    const vals = series!.projection.map((q) => q.value);
+    const spread = Math.max(...vals) - Math.min(...vals);
+    expect(spread).toBeLessThan(1);
+  });
+
+  it('exposes a fitted curve aligned to history', () => {
+    const s: Scrobble[] = [];
+    for (let m = 0; m < 12; m++) {
+      for (let k = 0; k <= m; k++) s.push(mk('A', new Date(Date.UTC(2025, m, 5))));
+    }
+    const [series] = forecast(s, (x) => x.artist, {
+      topN: 1, horizon: 3, smaWindow: 3, regWindow: 6,
+    });
+    expect(series!.fitted).toHaveLength(series!.history.length);
+    // regWindow=6 over 12 months → the first six are outside the fit.
+    expect(series!.fitted.slice(0, 6).every((v) => v == null)).toBe(true);
+    expect(series!.fitted.slice(6).every((v) => v != null)).toBe(true);
   });
 
   it('widens the smoothing window for a longer selected range', () => {
@@ -198,6 +336,54 @@ describe('forecast', () => {
     // spanMonths=6  → smaWindow = min(6, max(2, round(6/6)=1)) = 2 → 1 leading null
     // spanMonths=36 → smaWindow = min(6, max(2, round(36/6)=6)) = 6 → 5 leading nulls
     expect(longNulls).toBeGreaterThan(shortNulls);
+  });
+});
+
+describe('breakdownHierarchy', () => {
+  const build = (rows: [string, string][]) =>
+    rows.map(([inner, outer]) => ({ ...mk(inner, new Date(Date.UTC(2025, 0, 5))), album: outer }));
+
+  it('nests outer members under their inner group, both ranked by plays', () => {
+    const s = build([
+      ['A', 'One'], ['A', 'One'], ['A', 'One'],
+      ['A', 'Two'],
+      ['B', 'Three'], ['B', 'Three'],
+    ]);
+    const root = breakdownHierarchy(s, (x) => x.artist, (x) => x.album!, {
+      topInner: 10,
+      topOuterPerInner: 10,
+    });
+    // A has 4 plays to B's 2, so A leads; within A, One (3) leads Two (1).
+    expect(root.children!.map((c) => c.name)).toEqual(['A', 'B']);
+    expect(root.children![0]!.children!.map((c) => c.name)).toEqual(['One', 'Two']);
+    expect(root.children![0]!.children![0]!.value).toBe(3);
+  });
+
+  it('cuts both rings to their top-N without pooling the remainder', () => {
+    const s = build([
+      ['A', 'One'], ['A', 'One'], ['A', 'Two'],
+      ['B', 'Three'],
+      ['C', 'Four'],
+    ]);
+    const root = breakdownHierarchy(s, (x) => x.artist, (x) => x.album!, {
+      topInner: 2,
+      topOuterPerInner: 1,
+    });
+    expect(root.children!.map((c) => c.name)).toEqual(['A', 'B']);
+    // Only A's leading album survives the outer cut, and nothing is pooled.
+    expect(root.children![0]!.children).toHaveLength(1);
+    expect(root.children![0]!.children![0]!.name).toBe('One');
+  });
+
+  it('serves any pair of keys, not just genre to artist', () => {
+    // Same rows keyed the other way round — albums outward to artists.
+    const s = build([['A', 'One'], ['B', 'One'], ['B', 'One']]);
+    const root = breakdownHierarchy(s, (x) => x.album!, (x) => x.artist, {
+      topInner: 10,
+      topOuterPerInner: 10,
+    });
+    expect(root.children!.map((c) => c.name)).toEqual(['One']);
+    expect(root.children![0]!.children!.map((c) => c.name)).toEqual(['B', 'A']);
   });
 });
 

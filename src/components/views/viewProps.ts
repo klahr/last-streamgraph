@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import type { Size } from '../../hooks/useResizeObserver';
-import type { PaletteId } from '../../types';
+import type { GroupBy, PaletteId } from '../../types';
 import type {
   AlbumDepth,
   DailyCounts,
@@ -48,6 +48,9 @@ export interface RankBumpProps extends DisplayProps {
 
 export interface SunburstProps extends DisplayProps {
   data: HierNode;
+  /** Which pair of rings is drawn: genre→artist, artist→album, album→track. */
+  groupBy: GroupBy;
+  /** Only consulted for genre grouping — the other two need no tag fetch. */
   hasGenres: boolean;
 }
 
