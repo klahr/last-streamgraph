@@ -3,7 +3,7 @@
  * App shell: owns persisted credentials + viz config, wires the data hooks to
  * the control panel and the streamgraph, and lays out the responsive chart area.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ControlPanel } from './components/ControlPanel';
 import { Streamgraph } from './components/Streamgraph';
 import { useLocalStorage } from './hooks/useLocalStorage';
@@ -15,22 +15,10 @@ import { useResizeObserver } from './hooks/useResizeObserver';
 import { buildColorMap } from './utils/colors';
 import { usernameFromPath, syncUsernameToPath } from './utils/shareUrl';
 import { hostApiKey } from './utils/runtimeConfig';
-import { Punchcard } from './components/views/Punchcard';
-import { CalendarHeatmap } from './components/views/CalendarHeatmap';
-import { SeasonalRadial } from './components/views/SeasonalRadial';
-import { DiscoveryTimeline } from './components/views/DiscoveryTimeline';
-import { RankBump } from './components/views/RankBump';
-import { Sunburst } from './components/views/Sunburst';
-import { ArtistNetwork } from './components/views/ArtistNetwork';
-import { Forecast } from './components/views/Forecast';
-import { Obsessions } from './components/views/Obsessions';
-import { NoveltyStream } from './components/views/NoveltyStream';
-import { TenureChart } from './components/views/TenureChart';
-import { GenreClock } from './components/views/GenreClock';
-import { AlbumDepth } from './components/views/AlbumDepth';
-import { Sessions } from './components/views/Sessions';
-import { YearOverYear } from './components/views/YearOverYear';
-import { Retention } from './components/views/Retention';
+import { renderAnalyticsView } from './components/views/renderAnalyticsView';
+import { ShareButton } from './components/ShareButton';
+import { VIEWS, VIEW_DESCRIPTIONS, labelFor } from './viewMeta';
+import { isSnapshotView, type Snapshot } from './utils/shareSnapshot';
 import type {
   Credentials,
   RangeSelection,
@@ -38,48 +26,6 @@ import type {
   View,
   VizConfig,
 } from './types';
-
-const VIEWS: { id: View; label: string }[] = [
-  { id: 'streamgraph', label: 'Streamgraph' },
-  { id: 'forecast', label: '🔮 Forecast' },
-  { id: 'obsessions', label: 'Obsessions' },
-  { id: 'novelty', label: 'New vs. old' },
-  { id: 'tenure', label: 'Tenure' },
-  { id: 'retention', label: 'Retention' },
-  { id: 'yoy', label: 'Year on year' },
-  { id: 'punchcard', label: 'Punchcard' },
-  { id: 'genrehours', label: 'Genre clock' },
-  { id: 'sessions', label: 'Sessions' },
-  { id: 'albumdepth', label: 'Albums' },
-  { id: 'calendar', label: 'Calendar' },
-  { id: 'seasonal', label: 'Seasonal' },
-  { id: 'discovery', label: 'Discovery' },
-  { id: 'rankbump', label: 'Rank' },
-  { id: 'sunburst', label: 'Breakdown' },
-  { id: 'network', label: 'Network' },
-];
-
-/** One-line, user-facing summary of each view. Mirrors each view's doc comment
- * so the in-app copy and the code documentation can't drift. */
-const VIEW_DESCRIPTIONS: Record<View, string> = {
-  streamgraph: 'Listening volume over time as flowing, stacked streams — one per top artist/genre/album.',
-  forecast: 'A naive extrapolation of your next 6 months per top series — damped trend + seasonality, graded surging to dead. For fun, not prophecy.',
-  punchcard: 'When you listen by weekday × hour (your local time). Brighter cells = more plays in that slot.',
-  calendar: 'A GitHub-style daily heatmap of plays, one cell per day, weeks as columns.',
-  seasonal: 'Total plays per calendar month, summed across years, as 12 wedges sized by listening.',
-  discovery: 'When each artist first entered your library, over a cumulative distinct-artists curve.',
-  rankbump: 'How the top artists\' ranking shifts across time buckets — rank 1 at the top, lines break on drop-out.',
-  sunburst: 'A two-ring breakdown, one level apart: genres → their artists, artists → their albums, or albums → their tracks, following Group-by.',
-  network: 'Artists you play on the same days pull together in a force-directed graph; edges = shared listening days.',
-  obsessions: 'The tracks you played into the ground — ranked by burst (peak plays in any 7 days), not by total.',
-  novelty: 'Exploring or comforting yourself? Plays split into brand-new artists vs. ones you already knew, per bucket.',
-  tenure: 'Lifers vs. flings: how long each artist stayed, from their first play to their last.',
-  genrehours: 'Each genre\'s own daily shape — rows normalized and sorted from morning listening to late-night.',
-  albumdepth: 'Albums by breadth (distinct tracks played) × depth (total plays). Above the dashed line = repeat listening.',
-  sessions: 'Listening blocks: consecutive plays with no long gap, so you can see how long a typical sitting runs.',
-  yoy: 'Cumulative plays per calendar year on one day-of-year axis — which year was heavy, and whether you\'re ahead of last year.',
-  retention: 'How fast each year\'s discoveries faded: plays by months-since-debut, grouped by discovery year, with a half-life per cohort. Reads all history.',
-};
 
 const BUCKET_NOUN: Record<Resolution, string> = {
   weekly: 'weeks',
@@ -266,106 +212,70 @@ export default function App() {
     to,
   });
 
+  const hasGenres = Object.keys(genre.genreMap).length > 0;
+
   const renderView = () => {
-    switch (view) {
-      case 'streamgraph':
-        return (
-          <Streamgraph
-            data={data}
-            size={size}
-            mode={config.mode}
-            palette={config.palette}
-            resolution={config.resolution}
-          />
-        );
-      case 'punchcard':
-        return analyticsResult?.view === 'punchcard' ? (
-          <Punchcard data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'calendar':
-        return analyticsResult?.view === 'calendar' ? (
-          <CalendarHeatmap data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'seasonal':
-        return analyticsResult?.view === 'seasonal' ? (
-          <SeasonalRadial data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'discovery':
-        return analyticsResult?.view === 'discovery' ? (
-          <DiscoveryTimeline data={analyticsResult.payload} size={size} palette={config.palette} topN={config.topN} />
-        ) : null;
-      case 'rankbump':
-        return analyticsResult?.view === 'rankbump' ? (
-          <RankBump data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'sunburst':
-        return analyticsResult?.view === 'sunburst' ? (
-          <Sunburst
-            data={analyticsResult.payload}
-            size={size}
-            palette={config.palette}
-            groupBy={config.groupBy}
-            hasGenres={Object.keys(genre.genreMap).length > 0}
-          />
-        ) : null;
-      case 'network':
-        return analyticsResult?.view === 'network' ? (
-          <ArtistNetwork data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'obsessions':
-        return analyticsResult?.view === 'obsessions' ? (
-          <Obsessions data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'novelty':
-        return analyticsResult?.view === 'novelty' ? (
-          <NoveltyStream data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'tenure':
-        return analyticsResult?.view === 'tenure' ? (
-          <TenureChart data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'genrehours':
-        return analyticsResult?.view === 'genrehours' ? (
-          <GenreClock
-            data={analyticsResult.payload}
-            size={size}
-            palette={config.palette}
-            hasGenres={Object.keys(genre.genreMap).length > 0}
-          />
-        ) : null;
-      case 'albumdepth':
-        return analyticsResult?.view === 'albumdepth' ? (
-          <AlbumDepth data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'sessions':
-        return analyticsResult?.view === 'sessions' ? (
-          <Sessions data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'yoy':
-        return analyticsResult?.view === 'yoy' ? (
-          <YearOverYear data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'retention':
-        return analyticsResult?.view === 'retention' ? (
-          <Retention data={analyticsResult.payload} size={size} palette={config.palette} />
-        ) : null;
-      case 'forecast':
-        return analyticsResult?.view === 'forecast' ? (
-          <Forecast
-            data={analyticsResult.payload}
-            by={
-              config.groupBy === 'genre' && Object.keys(genre.genreMap).length > 0
-                ? 'genre'
-                : config.groupBy === 'album'
-                  ? 'album'
-                  : 'artist'
-            }
-          />
-        ) : null;
-      default:
-        return null;
+    if (view === 'streamgraph') {
+      return (
+        <Streamgraph
+          data={data}
+          size={size}
+          mode={config.mode}
+          palette={config.palette}
+          resolution={config.resolution}
+        />
+      );
     }
+    // Every other view draws from the analytics worker's union, through the
+    // same renderer the shared-snapshot poster uses.
+    if (analyticsResult?.view !== view) return null;
+    return renderAnalyticsView({
+      result: analyticsResult,
+      size,
+      palette: config.palette,
+      groupBy: config.groupBy,
+      topN: config.topN,
+      hasGenres,
+    });
   };
+
+  /**
+   * Package the current view for a share link. Returns null when this view
+   * can't travel — the streamgraph draws from a different pipeline, and a view
+   * still computing has nothing to send.
+   */
+  const buildSnapshot = useCallback(
+    (label: string): Snapshot | null => {
+      if (!isSnapshotView(view)) return null;
+      if (analyticsResult?.view !== view) return null;
+      return {
+        view,
+        payload: analyticsResult.payload,
+        palette: config.palette,
+        groupBy: config.groupBy,
+        topN: config.topN,
+        hasGenres,
+        // An unbounded range means "everything", so the caption reports the
+        // span the data actually covers rather than an open interval.
+        from: from ?? span.minMs,
+        to: to ?? span.maxMs,
+        label,
+        made: Date.now(),
+      };
+    },
+    [
+      view,
+      analyticsResult,
+      config.palette,
+      config.groupBy,
+      config.topN,
+      hasGenres,
+      from,
+      to,
+      span.minMs,
+      span.maxMs,
+    ],
+  );
 
   const patchConfig = (patch: Partial<VizConfig>) =>
     setConfig((prev) => ({ ...DEFAULT_CONFIG, ...prev, ...patch }));
@@ -458,6 +368,13 @@ export default function App() {
                 {v.label}
               </button>
             ))}
+          </div>
+          <div className="ml-auto pl-2">
+            <ShareButton
+              buildSnapshot={buildSnapshot}
+              chartRef={chartRef}
+              viewLabel={labelFor(view)}
+            />
           </div>
         </div>
 

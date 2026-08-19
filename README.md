@@ -63,6 +63,25 @@ Once you've connected your account, you can explore your music in lots of ways:
 - **Rank** — how your top artists rise and fall against each other.
 - **Affinity network** — clusters the artists you tend to play together.
 
+
+## Sharing a chart
+
+Every view has a **Share** button. It offers two things:
+
+- **Copy link** — a self-contained snapshot. The chart's own data is compressed
+  into the URL fragment, so opening the link draws exactly what you saw, forever,
+  with no account and no API key. It carries only what that one chart plots — no
+  username, and nothing about the rest of your library. Because it lives after
+  the `#`, it never reaches the server either, so it stays out of the access logs
+  of whoever is hosting the app.
+- **Save PNG** — the chart as an image, for the charts whose data is too big to
+  fit in a link (a 15-year calendar, say) and for anywhere a picture travels
+  better than a URL.
+
+Links open at `/s` as a standalone poster rather than inside the app. Note that
+this is still your listening data: aggregate, but personal. The share panel spells
+out what's in a link before you send one.
+
 You can recolor everything with a handful of palettes, and your whole history is
 saved in your browser so it loads instantly next time.
 

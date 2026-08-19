@@ -767,6 +767,37 @@ describe('retention', () => {
     expect(byYear.get(2023)!.fullyObservedMonths).toBe(6);
   });
 
+  it('censors a half-life the observation window is too short to place', () => {
+    // Both cohorts measure a 12-month half-life. The 2015 one has been watched
+    // for 108 months since, so the figure is settled; the 2023 one has been
+    // watched for exactly 12, so 12 is just where the data runs out.
+    const all = [
+      mk('Old', new Date(Date.UTC(2015, 0, 15, 12))),
+      ...[0, 1, 2].map((i) => mk('Old', new Date(Date.UTC(2016, 0, 15, 12 + i)))),
+      mk('New', new Date(Date.UTC(2023, 0, 15, 12))),
+      ...[0, 1, 2].map((i) => mk('New', new Date(Date.UTC(2024, 0, 15, 12 + i)))),
+    ];
+    const byYear = new Map(
+      retention(all, firstPlayMap(all)).cohorts.map((c) => [c.year, c]),
+    );
+    expect(byYear.get(2015)!.halfLifeMonths).toBe(12);
+    expect(byYear.get(2023)!.halfLifeMonths).toBe(12);
+    expect(byYear.get(2015)!.halfLifeCensored).toBe(false);
+    expect(byYear.get(2023)!.halfLifeCensored).toBe(true);
+  });
+
+  it('censors a young cohort even when its half-life reads as zero', () => {
+    // Everything in the debut month gives half-life 0, which would otherwise
+    // pass any "observed long enough" ratio test trivially.
+    const all = [
+      mk('A', new Date(Date.UTC(2025, 0, 15, 12))),
+      mk('A', new Date(Date.UTC(2025, 0, 16, 12))),
+    ];
+    const [cohort] = retention(all, firstPlayMap(all)).cohorts;
+    expect(cohort!.halfLifeMonths).toBe(0);
+    expect(cohort!.halfLifeCensored).toBe(true);
+  });
+
   it('uses full-history debuts, so an old artist is never a new cohort', () => {
     const all = [
       mk('A', new Date(Date.UTC(2019, 0, 15, 12))),

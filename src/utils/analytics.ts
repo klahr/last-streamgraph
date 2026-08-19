@@ -1239,6 +1239,17 @@ export function yearOverYear(
 
 /* --------------------------- Cohort retention ---------------------------- */
 
+/**
+ * A half-life is only believable once you've watched a cohort for a good
+ * multiple of it: at 2x, the unobserved tail would have to outweigh everything
+ * seen so far to move the figure. Below that, and below a floor of
+ * {@link HALF_LIFE_MIN_OBSERVED} months where even a fast fade hasn't had room
+ * to show, the number is censored by the observation window rather than
+ * measured.
+ */
+const HALF_LIFE_CONFIDENCE = 2;
+const HALF_LIFE_MIN_OBSERVED = 6;
+
 export interface RetentionCohort {
   /** Year the artists in this cohort were first heard. */
   year: number;
@@ -1251,6 +1262,14 @@ export interface RetentionCohort {
   total: number;
   /** Months until half the cohort's plays had happened — its decay speed. */
   halfLifeMonths: number;
+  /**
+   * True when the cohort is too young for {@link halfLifeMonths} to mean what
+   * it looks like. A half-life can never exceed the window you've watched, so
+   * a cohort observed for eight months cannot report one above eight however
+   * loyal it turns out to be — read a censored figure as a floor, not an
+   * estimate, and don't compare it against a mature cohort's.
+   */
+  halfLifeCensored: boolean;
   /**
    * Highest month-age observed for *every* artist in the cohort. Columns past
    * this are unobserved, not empty: a cohort from last year simply hasn't had
@@ -1273,7 +1292,11 @@ export interface RetentionData {
  * shape can be compared with a 2023 one regardless of size.
  *
  * `tenure` shows how long individual artists stayed; this shows the shape of the
- * fade, and `halfLifeMonths` compresses it to one number per cohort.
+ * fade, and `halfLifeMonths` compresses it to one number per cohort — though
+ * only where `halfLifeCensored` is false. The newest cohorts are always
+ * censored, and reading their half-lives as real would show a fake trend of
+ * ever-flightier taste, since a young cohort's plays have nowhere to sit but
+ * early.
  *
  * Pass the **whole** history, not a ranged slice, for both arguments. A date
  * filter would chop the right-hand side off every row and bias every half-life
@@ -1368,6 +1391,9 @@ export function retention(
         shares: row.months.map((v) => (row.total ? v / row.total : 0)),
         total: row.total,
         halfLifeMonths,
+        halfLifeCensored:
+          fullyObservedMonths <
+          Math.max(HALF_LIFE_MIN_OBSERVED, HALF_LIFE_CONFIDENCE * halfLifeMonths),
         fullyObservedMonths,
       };
     });
