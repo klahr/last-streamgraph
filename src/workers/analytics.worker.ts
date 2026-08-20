@@ -127,22 +127,33 @@ const albumKey = (s: CountableScrobble) => s.album || 'Unknown Album';
 const trackKey = (s: CountableScrobble) => s.track || 'Unknown Track';
 
 /**
- * The sunburst's two rings, one level apart: genres break into their artists,
- * artists into their albums, albums into their tracks. Genre grouping keys off
+ * What Group-by names a series: a genre, an artist or an album. Genre keys off
  * {@link genreOf} unconditionally — before the tag fetch lands every artist is
- * "Unknown", which the view detects and explains rather than quietly drawing.
+ * "Unknown", which the genre-capable views detect and explain rather than
+ * quietly drawing.
+ */
+function seriesKey(groupBy: GroupBy): (s: CountableScrobble) => string {
+  switch (groupBy) {
+    case 'genre':
+      return genreOf;
+    case 'album':
+      return albumKey;
+    default:
+      return artistKey;
+  }
+}
+
+/**
+ * The sunburst's two rings, one level apart: genres break into their artists,
+ * artists into their albums, albums into their tracks — so the inner ring is
+ * whatever Group-by names, and the outer is one level below it.
  */
 function breakdownKeys(
   groupBy: GroupBy,
 ): [(s: CountableScrobble) => string, (s: CountableScrobble) => string] {
-  switch (groupBy) {
-    case 'genre':
-      return [genreOf, artistKey];
-    case 'album':
-      return [albumKey, trackKey];
-    default:
-      return [artistKey, albumKey];
-  }
+  const outer =
+    groupBy === 'genre' ? artistKey : groupBy === 'album' ? trackKey : albumKey;
+  return [seriesKey(groupBy), outer];
 }
 
 /** Safety bound: a `.*`-ish filter shouldn't render hundreds of cards. */
@@ -197,7 +208,9 @@ function compute(request: AnalyticsRequest): unknown {
     case 'calendar':
       return dailyCounts(slice);
     case 'seasonal':
-      return seasonal(slice);
+      // Signatures are keyed by whatever Group-by names, so the same wedge can
+      // answer "my December artist" or "my December genre".
+      return seasonal(slice, seriesKey(groupBy));
     case 'discovery':
       return discovery(slice, { minPlays: 5 });
     case 'rankbump':

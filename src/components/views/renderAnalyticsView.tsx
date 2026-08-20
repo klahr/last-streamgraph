@@ -67,7 +67,14 @@ export function renderAnalyticsView({
     case 'calendar':
       return <CalendarHeatmap data={result.payload} {...d} />;
     case 'seasonal':
-      return <SeasonalRadial data={result.payload} {...d} />;
+      return (
+        <SeasonalRadial
+          data={result.payload}
+          {...d}
+          groupBy={groupBy}
+          hasGenres={hasGenres}
+        />
+      );
     case 'discovery':
       return <DiscoveryTimeline data={result.payload} {...d} topN={topN} />;
     case 'rankbump':

@@ -22,7 +22,8 @@
  */
 import type { GroupBy, PaletteId, View } from '../types';
 import type { AnalyticsViewResult } from '../hooks/useAnalytics';
-import type { DailyCounts, RetentionData } from './analytics';
+import { SEASONS } from './analytics';
+import type { DailyCounts, RetentionData, SeasonalData } from './analytics';
 
 /** Views that can travel in a link — everything the analytics worker computes. */
 export type SnapshotView = AnalyticsViewResult['view'];
@@ -82,6 +83,27 @@ const TRIMS: Partial<
       ...d,
       byDay: new Map(d.byDay),
     }),
+  },
+  // Links shared before the season ring existed carry a bare 12-number array.
+  // Upgrading them here keeps every old link alive; bumping SNAPSHOT_VERSION
+  // for this would have invalidated every link for every view instead. Such a
+  // link plots its months as it always did — the signatures simply aren't in
+  // it, and the ring says so rather than inventing them.
+  seasonal: {
+    pack: (d: SeasonalData) => d,
+    unpack: (d: SeasonalData | number[]) => {
+      if (!Array.isArray(d)) return d;
+      const seasons = SEASONS.map((_, i) => ({
+        plays: SEASONS[i]!.monthIndices.reduce((a, m) => a + (d[m] ?? 0), 0),
+        signature: null,
+      }));
+      return {
+        months: d,
+        monthSignatures: d.map(() => null),
+        seasons,
+        total: d.reduce((a, b) => a + b, 0),
+      };
+    },
   },
   // `shares` is exactly months[i] / total — a full parallel array of floats,
   // and the single biggest thing in a retention payload.

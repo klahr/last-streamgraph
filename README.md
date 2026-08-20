@@ -58,7 +58,10 @@ Once you've connected your account, you can explore your music in lots of ways:
 - **Albums** — breadth against depth. How many of an album's tracks you've played
   versus how often; the ones you lived inside pull away from the ones you sampled
   once.
-- **Seasonal** — which months of the year you listen most.
+- **Seasonal** — which months of the year you listen most, ringed by each season's
+  signature: the artist (or genre, or album) that takes a bigger share of that
+  season than of your listening overall. Not your most-played — that would just
+  name your all-time favourite four times over.
 - **Discovery** — a timeline of when you found each artist.
 - **Rank** — how your top artists rise and fall against each other.
 - **Affinity network** — clusters the artists you tend to play together.
@@ -87,7 +90,7 @@ saved in your browser so it loads instantly next time.
 
 ## Gallery
 
-![Seasonal listening — which months of the year you listen most](docs/seasonal.png)
+![Seasonal listening — monthly volume, ringed by each season's signature artist](docs/seasonal.png)
 ![The discovery timeline — when you found each artist](docs/discovery.png)
 ![A playful forecast of each genre's trend](docs/forecast.png)
 

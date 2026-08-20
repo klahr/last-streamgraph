@@ -4,6 +4,7 @@
  * payload — nothing here recomputes or infers anything the chart isn't already
  * drawing.
  */
+import { SEASONS } from './analytics';
 import type { Snapshot } from './shareSnapshot';
 import type {
   AlbumDepth,
@@ -18,6 +19,7 @@ import type {
   Punchcard,
   RankData,
   RetentionData,
+  SeasonalData,
   SessionsData,
   Tenure,
   YearOverYearData,
@@ -43,10 +45,25 @@ export function snapshotFacts(snapshot: Snapshot): Fact[] {
         { label: 'busiest day', value: n(d.max) },
       ];
     }
-    case 'seasonal':
-      return [
-        { label: 'plays', value: n((p as number[]).reduce((a, b) => a + b, 0)) },
-      ];
+    case 'seasonal': {
+      const d = p as SeasonalData;
+      const facts: Fact[] = [{ label: 'plays', value: n(d.total) }];
+      // The season whose signature stands out most — the one line of this chart
+      // worth reading before the chart itself.
+      let peak = -1;
+      d.seasons.forEach((s, i) => {
+        const lift = s.signature?.distinctive ? s.signature.lift : 0;
+        if (lift > (peak < 0 ? 0 : d.seasons[peak]!.signature!.lift)) peak = i;
+      });
+      const top = peak >= 0 ? d.seasons[peak]!.signature! : null;
+      if (top) {
+        facts.push({
+          label: `${SEASONS[peak]!.name.toLowerCase()} signature`,
+          value: top.key,
+        });
+      }
+      return facts;
+    }
     case 'discovery':
       return [{ label: 'artists discovered', value: n((p as Discovery[]).length) }];
     case 'rankbump': {

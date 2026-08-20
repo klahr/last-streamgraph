@@ -66,11 +66,148 @@ export function dailyCounts(scrobbles: readonly CountableScrobble[]): DailyCount
 
 /* ----------------------------- Seasonal ---------------------------------- */
 
-/** Total plays per month-of-year (index 0 = January), summed across all years. */
-export function seasonal(scrobbles: readonly CountableScrobble[]): number[] {
+/**
+ * Meteorological seasons, northern hemisphere: winter starts in December and
+ * so straddles the year boundary. `monthIndices` runs in season order, which
+ * the radial view leans on to place each arc.
+ */
+export const SEASONS: { name: string; months: string; monthIndices: number[] }[] = [
+  { name: 'Winter', months: 'Dec–Feb', monthIndices: [11, 0, 1] },
+  { name: 'Spring', months: 'Mar–May', monthIndices: [2, 3, 4] },
+  { name: 'Summer', months: 'Jun–Aug', monthIndices: [5, 6, 7] },
+  { name: 'Autumn', months: 'Sep–Nov', monthIndices: [8, 9, 10] },
+];
+
+/** Season index per month-of-year, index 0 = January. Derived, not restated. */
+const SEASON_OF_MONTH = SEASONS.reduce((acc, season, i) => {
+  for (const m of season.monthIndices) acc[m] = i;
+  return acc;
+}, new Array<number>(12).fill(0));
+
+/** The artist/genre/album that most defines a month or a season. */
+export interface SeasonalSignature {
+  /** Name, per the caller's key function — an artist, genre or album. */
+  key: string;
+  /** Its plays inside this slot. */
+  plays: number;
+  /** Its share of the slot's plays, 0..1. */
+  share: number;
+  /**
+   * `share` divided by the same key's share of *all* plays in range. 1 means
+   * exactly as prominent here as everywhere; 2 means twice its usual pull.
+   */
+  lift: number;
+  /** False when nothing cleared the noise floor and this is the raw top key. */
+  distinctive: boolean;
+}
+
+export interface SeasonalSlot {
+  plays: number;
+  signature: SeasonalSignature | null;
+}
+
+export interface SeasonalData {
+  /** Plays per month-of-year, index 0 = January. */
+  months: number[];
+  /** Signature per month-of-year, index 0 = January. */
+  monthSignatures: (SeasonalSignature | null)[];
+  /** The four {@link SEASONS}, index 0 = winter. */
+  seasons: SeasonalSlot[];
+  total: number;
+}
+
+/**
+ * Month-of-year volume (summed across years) plus, for each month and each
+ * season, the key that most defines it.
+ *
+ * "Most defines" is deliberately *not* the most-played key. Ranking a season by
+ * raw play count just re-elects whoever you play most overall, so all twelve
+ * months name the same artist and the chart says nothing seasonal. Instead a
+ * signature is the key whose share of that slot most exceeds its share of your
+ * listening as a whole — a lift index. That's the one that answers "what do I
+ * put on in December that I don't put on in June".
+ *
+ * Lift explodes on small numbers (an artist played 3 times, all in one January,
+ * scores an infinite-looking lift), so a key must clear a noise floor —
+ * `minPlays`, or 0.5% of the slot, whichever is larger — to be eligible. When
+ * nothing clears it (a thin range, a new account), the slot falls back to its
+ * raw top key flagged `distinctive: false` rather than going unlabelled.
+ *
+ * Local time, like the other calendar-shaped views.
+ */
+export function seasonal(
+  scrobbles: readonly CountableScrobble[],
+  keyOf: (s: CountableScrobble) => string = (s) => s.artist,
+  opts: { minPlays?: number } = {},
+): SeasonalData {
+  const minPlays = Math.max(1, opts.minPlays ?? 10);
   const months = new Array<number>(12).fill(0);
-  for (const s of scrobbles) months[new Date(s.uts * 1000).getMonth()] += 1;
-  return months;
+  const seasonPlays = new Array<number>(4).fill(0);
+  const overall = new Map<string, number>();
+  const byMonth = Array.from({ length: 12 }, () => new Map<string, number>());
+  const bySeason = Array.from({ length: 4 }, () => new Map<string, number>());
+
+  for (const s of scrobbles) {
+    const m = new Date(s.uts * 1000).getMonth();
+    const season = SEASON_OF_MONTH[m];
+    months[m] += 1;
+    seasonPlays[season] += 1;
+    const k = keyOf(s);
+    overall.set(k, (overall.get(k) ?? 0) + 1);
+    const mm = byMonth[m];
+    mm.set(k, (mm.get(k) ?? 0) + 1);
+    const sm = bySeason[season];
+    sm.set(k, (sm.get(k) ?? 0) + 1);
+  }
+
+  const total = scrobbles.length;
+  const sign = (counts: Map<string, number>, slotTotal: number) =>
+    signatureFor(counts, slotTotal, overall, total, minPlays);
+
+  return {
+    months,
+    monthSignatures: months.map((plays, m) => sign(byMonth[m], plays)),
+    seasons: seasonPlays.map((plays, i) => ({
+      plays,
+      signature: sign(bySeason[i], plays),
+    })),
+    total,
+  };
+}
+
+/**
+ * Highest-lift key in one slot, subject to the noise floor; the raw top key by
+ * plays if nothing clears it. Ties break toward the bigger key, then by name,
+ * so the result never depends on Map iteration order.
+ */
+function signatureFor(
+  counts: Map<string, number>,
+  slotTotal: number,
+  overall: Map<string, number>,
+  total: number,
+  minPlays: number,
+): SeasonalSignature | null {
+  if (slotTotal === 0 || total === 0) return null;
+  const floor = Math.max(minPlays, Math.ceil(slotTotal * 0.005));
+
+  let best: SeasonalSignature | null = null;
+  let top: SeasonalSignature | null = null;
+  for (const [key, plays] of counts) {
+    const share = plays / slotTotal;
+    const cand: SeasonalSignature = {
+      key,
+      plays,
+      share,
+      lift: share / ((overall.get(key) ?? plays) / total),
+      distinctive: true,
+    };
+    if (!top || plays > top.plays || (plays === top.plays && key < top.key)) top = cand;
+    if (plays < floor) continue;
+    if (!best || cand.lift > best.lift || (cand.lift === best.lift && (plays > best.plays || (plays === best.plays && key < best.key))))
+      best = cand;
+  }
+  if (best) return best;
+  return top ? { ...top, distinctive: false } : null;
 }
 
 /* ----------------------------- Discovery --------------------------------- */

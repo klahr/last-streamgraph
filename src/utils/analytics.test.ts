@@ -50,16 +50,78 @@ describe('punchcard', () => {
 });
 
 describe('seasonal', () => {
+  /** n plays of `artist` in month `m` (0-based) of 2024. */
+  const many = (artist: string, m: number, n: number) =>
+    Array.from({ length: n }, (_, i) => mk(artist, new Date(2024, m, 1 + (i % 20))));
+
   it('sums plays per month-of-year', () => {
     const s = [
       mk('A', new Date(2023, 0, 10)),
       mk('A', new Date(2025, 0, 2)),
       mk('B', new Date(2024, 6, 1)),
     ];
-    const months = seasonal(s);
+    const { months, total } = seasonal(s);
     expect(months[0]).toBe(2); // January across years
     expect(months[6]).toBe(1); // July
-    expect(months.reduce((a, b) => a + b, 0)).toBe(3);
+    expect(total).toBe(3);
+  });
+
+  it('folds months into seasons, with winter spanning the year boundary', () => {
+    const s = [
+      mk('A', new Date(2024, 11, 5)), // December -> winter
+      mk('A', new Date(2024, 0, 5)), // January -> winter
+      mk('A', new Date(2024, 3, 5)), // April -> spring
+      mk('A', new Date(2024, 7, 5)), // August -> summer
+      mk('A', new Date(2024, 9, 5)), // October -> autumn
+    ];
+    const { seasons } = seasonal(s);
+    expect(seasons.map((x) => x.plays)).toEqual([2, 1, 1, 1]);
+  });
+
+  it('names the over-represented key, not the most-played one', () => {
+    // "Big" is played twice as much overall, but "Cozy" only ever turns up in
+    // winter — that's the one that says something seasonal.
+    const s = [
+      ...many('Big', 0, 10), // January
+      ...many('Big', 6, 10), // July
+      ...many('Cozy', 0, 6), // January only
+    ];
+    const { seasons, monthSignatures } = seasonal(s, (x) => x.artist, { minPlays: 5 });
+
+    const winter = seasons[0]!.signature!;
+    expect(winter.key).toBe('Cozy');
+    expect(winter.distinctive).toBe(true);
+    expect(winter.plays).toBe(6);
+    expect(winter.share).toBeCloseTo(6 / 16);
+    // 37.5% of winter against 23% of everything.
+    expect(winter.lift).toBeCloseTo((6 / 16) / (6 / 26));
+
+    // Summer is all Big, so Big is both the top and the signature there.
+    expect(seasons[2]!.signature!.key).toBe('Big');
+    expect(monthSignatures[0]!.key).toBe('Cozy');
+    expect(monthSignatures[6]!.key).toBe('Big');
+  });
+
+  it('keys signatures off the caller\'s key function', () => {
+    const genre = (x: { artist: string }) => (x.artist === 'Cozy' ? 'folk' : 'techno');
+    const s = [...many('Big', 0, 10), ...many('Cozy', 0, 6), ...many('Big', 6, 10)];
+    expect(seasonal(s, genre, { minPlays: 5 }).seasons[0]!.signature!.key).toBe('folk');
+  });
+
+  it('falls back to the top key, marked undistinctive, below the noise floor', () => {
+    // Two plays can't establish a seasonal habit; label the wedge honestly
+    // rather than crowning a 13x lift.
+    const s = [mk('A', new Date(2024, 0, 3)), mk('A', new Date(2024, 0, 4))];
+    const sig = seasonal(s, (x) => x.artist, { minPlays: 5 }).seasons[0]!.signature!;
+    expect(sig.key).toBe('A');
+    expect(sig.distinctive).toBe(false);
+  });
+
+  it('leaves empty seasons unsigned', () => {
+    const { seasons } = seasonal([mk('A', new Date(2024, 6, 1))]);
+    expect(seasons[2]!.plays).toBe(1);
+    expect(seasons[0]!.signature).toBeNull();
+    expect(seasons[1]!.signature).toBeNull();
   });
 });
 

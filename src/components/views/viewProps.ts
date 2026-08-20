@@ -14,6 +14,7 @@ import type {
   Punchcard,
   RankData,
   RetentionData,
+  SeasonalData,
   SessionsData,
   Tenure,
   YearOverYearData,
@@ -34,7 +35,11 @@ export interface CalendarProps extends DisplayProps {
 }
 
 export interface SeasonalProps extends DisplayProps {
-  data: number[];
+  data: SeasonalData;
+  /** What a signature names: a genre, an artist or an album. */
+  groupBy: GroupBy;
+  /** Only consulted for genre grouping — the other two need no tag fetch. */
+  hasGenres: boolean;
 }
 
 export interface DiscoveryProps extends DisplayProps {

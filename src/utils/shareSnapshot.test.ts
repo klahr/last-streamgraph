@@ -8,7 +8,7 @@ import {
   isSnapshotView,
   type Snapshot,
 } from './shareSnapshot';
-import type { DailyCounts, RetentionData } from './analytics';
+import type { DailyCounts, RetentionData, SeasonalData } from './analytics';
 import { shareTitleFor } from '../viewMeta';
 
 const base: Omit<Snapshot, 'view' | 'payload'> = {
@@ -89,6 +89,19 @@ describe('shareSnapshot', () => {
     const cohort = (out.payload as RetentionData).cohorts[0]!;
     expect(cohort.shares).toEqual([0.6, 0.3, 0.1]);
     expect(cohort.months).toEqual([6, 3, 1]);
+  });
+
+  it('upgrades a seasonal payload shared before the season ring existed', async () => {
+    const legacy = [9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 10];
+    const out = await roundTrip(snap('seasonal', legacy));
+    const d = out.payload as SeasonalData;
+    expect(d.months).toEqual(legacy);
+    expect(d.total).toBe(60);
+    // Winter straddles the year boundary: Dec + Jan + Feb.
+    expect(d.seasons[0]!.plays).toBe(10 + 9 + 8);
+    // The signatures simply aren't in such a link; the ring says so.
+    expect(d.seasons.every((x) => x.signature === null)).toBe(true);
+    expect(d.monthSignatures).toHaveLength(12);
   });
 
   it('refuses a fragment from a different snapshot version', async () => {

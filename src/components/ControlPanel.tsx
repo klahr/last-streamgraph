@@ -94,7 +94,10 @@ export function ControlPanel({
   const showResolution =
     view === 'streamgraph' || view === 'rankbump' || view === 'novelty';
   const showGroupBy =
-    view === 'streamgraph' || view === 'sunburst' || view === 'forecast';
+    view === 'streamgraph' ||
+    view === 'sunburst' ||
+    view === 'forecast' ||
+    view === 'seasonal';
   const showStreamMode = view === 'streamgraph';
   const showTopN =
     view === 'streamgraph' ||

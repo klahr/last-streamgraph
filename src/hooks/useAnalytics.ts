@@ -32,6 +32,7 @@ import type {
   ObsessionData,
   Punchcard,
   RetentionData,
+  SeasonalData,
   SessionsData,
   Tenure,
   YearOverYearData,
@@ -52,7 +53,7 @@ interface Options {
 export type AnalyticsViewResult =
   | { view: 'punchcard'; payload: Punchcard }
   | { view: 'calendar'; payload: DailyCounts }
-  | { view: 'seasonal'; payload: number[] }
+  | { view: 'seasonal'; payload: SeasonalData }
   | { view: 'discovery'; payload: Discovery[] }
   | { view: 'rankbump'; payload: RankData }
   | { view: 'sunburst'; payload: HierNode }

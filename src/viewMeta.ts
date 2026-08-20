@@ -53,7 +53,7 @@ export const VIEW_DESCRIPTIONS: Record<View, string> = {
   forecast: 'A naive extrapolation of your next 6 months per top series — damped trend + seasonality, graded surging to dead. For fun, not prophecy.',
   punchcard: 'When you listen by weekday × hour (your local time). Brighter cells = more plays in that slot.',
   calendar: 'A GitHub-style daily heatmap of plays, one cell per day, weeks as columns.',
-  seasonal: 'Total plays per calendar month, summed across years, as 12 wedges sized by listening.',
+  seasonal: 'Total plays per calendar month, summed across years, as 12 wedges sized by listening — ringed by each season\'s signature: the artist/genre/album that takes a bigger share of that season than of your listening overall.',
   discovery: 'When each artist first entered your library, over a cumulative distinct-artists curve.',
   rankbump: 'How the top artists\' ranking shifts across time buckets — rank 1 at the top, lines break on drop-out.',
   sunburst: 'A two-ring breakdown, one level apart: genres → their artists, artists → their albums, or albums → their tracks, following Group-by.',
