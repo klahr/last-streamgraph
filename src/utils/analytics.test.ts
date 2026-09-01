@@ -197,6 +197,62 @@ describe('seasonal', () => {
     expect(keys.indexOf(thick)).toBeLessThan(keys.indexOf(thin));
   });
 
+  it('keeps every unranked key findable, with the reason it was left out', () => {
+    // The search box reads `others`. A listener who types a name they own must
+    // get it back with an explanation — an empty result reads like a lost sync.
+    const s = [
+      ...baseline([2022, 2023, 2024]),
+      ...[2022, 2023, 2024].flatMap((y) => many('Cozy', 0, 30, y)), // ranks
+      ...many('Phase', 5, 60, 2023), // one calendar year only
+      ...[2022, 2023, 2024].flatMap((y) => many('Tiny', 0, 2, y)), // under the floor
+    ];
+    const { keys, others } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+
+    expect(keys.map((k) => k.key)).toEqual(['Cozy']);
+    expect(keys[0]!.reason).toBe('ranked');
+
+    const byKey = new Map(others.map((k) => [k.key, k]));
+    expect(byKey.get('Phase')!.reason).toBe('one-year');
+    expect(byKey.get('Tiny')!.reason).toBe('thin');
+    expect(byKey.get('Filler')!.reason).toBe('flat');
+    // Unranked entries still carry a full profile, so a search hit can draw the
+    // shape that explains the verdict rather than just asserting it.
+    expect(byKey.get('Phase')!.lift).toHaveLength(12);
+    expect(byKey.get('Phase')!.byMonth[5]).toBe(60);
+    // Ordered by plays, the only thing a searcher can be expected to recall.
+    expect(others.map((k) => k.plays)).toEqual([...others.map((k) => k.plays)].sort((a, b) => b - a));
+  });
+
+  it('counts what it could not profile instead of pretending to cover it', () => {
+    const s = [
+      ...baseline([2022, 2023, 2024]),
+      mk('One Play', new Date(2023, 3, 2)),
+      mk('Also One', new Date(2023, 8, 9)),
+    ];
+    const { others, unprofiled } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    expect(others.map((k) => k.key)).not.toContain('One Play');
+    expect(unprofiled).toBe(2);
+  });
+
+  it('caps the library index and folds the overflow into the count', () => {
+    // Twelve one-year names: enough plays to profile, never a second year, so
+    // every one of them lands in the index rather than the ranking.
+    const s = [
+      ...baseline([2022, 2023, 2024]),
+      ...Array.from({ length: 12 }, (_, i) => many(`Extra ${i}`, i % 12, 20, 2023)).flat(),
+    ];
+    const all = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    expect(all.others.length).toBeGreaterThan(5);
+
+    const { others, unprofiled } = seasonal(s, (x) => x.artist, {
+      minPlays: 10,
+      otherLimit: 5,
+    });
+    expect(others).toHaveLength(5);
+    // Nothing is silently dropped: what didn't fit is still reported.
+    expect(unprofiled).toBe(all.others.length - 5);
+  });
+
   it('keys by whatever the caller names, not just artists', () => {
     const genre = (x: { artist: string }) => (x.artist === 'Cozy' ? 'folk' : 'pop');
     const s = [

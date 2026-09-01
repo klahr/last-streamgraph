@@ -115,6 +115,20 @@ const MIN_SHARE = 0.005;
  * exists to exclude.
  */
 const MIN_CANDIDATES = 8;
+/**
+ * Below this a key has no month-of-year shape to read — one play is a single
+ * spike, not a season — so it is counted rather than profiled.
+ */
+const PROFILE_MIN_PLAYS = 2;
+
+/**
+ * Why a key is, or isn't, in the ranking.
+ *
+ * `thin` — under {@link MIN_SHARE} of your listening.
+ * `one-year` — never came back in a second calendar year.
+ * `flat` — no peak worth the word, or its years disagree on when.
+ */
+export type SeasonalReason = 'ranked' | 'thin' | 'one-year' | 'flat';
 
 /** One artist/genre/album that recurs at the same time of year. */
 export interface SeasonalKey {
@@ -151,6 +165,8 @@ export interface SeasonalKey {
   agreeingYears: number;
   /** `strength × (agreeingYears / activeYears)` — the ranking key. */
   score: number;
+  /** Whether this key made the ranking, and if not, what kept it out. */
+  reason: SeasonalReason;
 }
 
 export interface SeasonalData {
@@ -164,6 +180,19 @@ export interface SeasonalData {
   coverage: number[];
   /** Keys that recur at the same time of year, best {@link SeasonalKey.score} first. */
   keys: SeasonalKey[];
+  /**
+   * Every other key with a readable shape, most-played first — the ones that
+   * didn't make the ranking, kept so a search can still find them.
+   *
+   * A listener who types a name they know they own should get that name back
+   * with a reason, not an empty result that reads like the sync lost it. These
+   * are a lookup table and never appear unsearched, so they carry no weight in
+   * the chart; they are also dropped from a shared link, where the reader wants
+   * the ranking rather than the sharer's library index.
+   */
+  others: SeasonalKey[];
+  /** Keys too small to profile, plus any past the `otherLimit` cap. */
+  unprofiled: number;
   /** Keys that cleared the play floor but appear in only one calendar year. */
   oneYearOnly: number;
   /** Keys with the plays and the years, but no peak worth the word "seasonal". */
@@ -284,10 +313,11 @@ function monthDistance(a: number, b: number): number {
 export function seasonal(
   scrobbles: readonly CountableScrobble[],
   keyOf: (s: CountableScrobble) => string = (s) => s.artist,
-  opts: { minPlays?: number; limit?: number } = {},
+  opts: { minPlays?: number; limit?: number; otherLimit?: number } = {},
 ): SeasonalData {
   const minPlays = Math.max(1, opts.minPlays ?? 12);
   const limit = Math.max(1, opts.limit ?? 24);
+  const otherLimit = Math.max(0, opts.otherLimit ?? 1500);
 
   const months = new Array<number>(12).fill(0);
   let firstMs = Infinity;
@@ -327,17 +357,18 @@ export function seasonal(
 
   const total = scrobbles.length;
   const coverage = monthCoverage(firstMs, lastMs);
-  if (total === 0) {
-    return {
-      months,
-      coverage,
-      keys: [],
-      oneYearOnly: 0,
-      notSeasonal: 0,
-      playFloor: minPlays,
-      total,
-    };
-  }
+  const empty: SeasonalData = {
+    months,
+    coverage,
+    keys: [],
+    others: [],
+    unprofiled: 0,
+    oneYearOnly: 0,
+    notSeasonal: 0,
+    playFloor: minPlays,
+    total,
+  };
+  if (total === 0) return empty;
 
   // Relative to the library, but never so high that it starves the view: the
   // share-based floor is capped at whatever the MIN_CANDIDATES-th biggest key
@@ -355,19 +386,23 @@ export function seasonal(
   const monthShare = months.map((v) => v / total);
 
   const keys: SeasonalKey[] = [];
+  const others: SeasonalKey[] = [];
+  let unprofiled = 0;
   let oneYearOnly = 0;
   let notSeasonal = 0;
 
   for (const [key, acc] of perKey) {
-    if (acc.plays < playFloor) continue;
+    // A single play has no shape at all — not a flat one, not a peaked one.
+    // Counted so the view can say how much of the library is below the line
+    // rather than implying a search covered everything.
+    if (acc.plays < PROFILE_MIN_PLAYS) {
+      unprofiled += 1;
+      continue;
+    }
 
     const votingYears = [...acc.byYear.values()].filter(
       (ym) => ym.reduce((a, b) => a + b, 0) >= YEAR_VOTE_FLOOR,
     );
-    if (votingYears.length < 2) {
-      oneYearOnly += 1;
-      continue;
-    }
 
     const lift = acc.byMonth.map((v, m) =>
       monthShare[m]! > 0 ? v / acc.plays / monthShare[m]! : 0,
@@ -387,12 +422,22 @@ export function seasonal(
     const window = [peakMonth + 11, peakMonth, peakMonth + 1].map((m) => lift[m % 12]!);
     const peakLift = window.reduce((a, b) => a + b, 0) / 3;
 
-    if (peakLift < MIN_PEAK_LIFT || agreeingYears < MIN_AGREEING_YEARS) {
-      notSeasonal += 1;
-      continue;
-    }
+    // Why a key is out matters as much as that it is out: a name the listener
+    // knows they have should come back from a search with a reason attached,
+    // not a blank "no match" that reads like the sync dropped it.
+    const reason: SeasonalReason =
+      acc.plays < playFloor
+        ? 'thin'
+        : votingYears.length < 2
+          ? 'one-year'
+          : peakLift < MIN_PEAK_LIFT || agreeingYears < MIN_AGREEING_YEARS
+            ? 'flat'
+            : 'ranked';
 
-    keys.push({
+    if (reason === 'one-year') oneYearOnly += 1;
+    if (reason === 'flat') notSeasonal += 1;
+
+    (reason === 'ranked' ? keys : others).push({
       key,
       plays: acc.plays,
       byMonth: acc.byMonth,
@@ -405,21 +450,26 @@ export function seasonal(
       agreeingYears,
       score:
         Math.max(0, (strength - chanceDrift) / (1 - chanceDrift)) *
-        (agreeingYears / votingYears.length),
+        (votingYears.length ? agreeingYears / votingYears.length : 0),
+      reason,
     });
   }
 
   // Ties break toward more plays, then by name, so the order never depends on
   // Map iteration order.
-  keys.sort(
-    (a, b) =>
-      b.score - a.score || b.plays - a.plays || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
-  );
+  const byName = (a: SeasonalKey, b: SeasonalKey) =>
+    a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
+  keys.sort((a, b) => b.score - a.score || b.plays - a.plays || byName(a, b));
+  // The unranked are a lookup table, not a chart, so they are ordered by the
+  // only thing a searcher can be expected to remember: how much they played it.
+  others.sort((a, b) => b.plays - a.plays || byName(a, b));
 
   return {
     months,
     coverage,
     keys: keys.slice(0, limit),
+    others: others.slice(0, otherLimit),
+    unprofiled: unprofiled + Math.max(0, others.length - otherLimit),
     oneYearOnly,
     notSeasonal,
     playFloor,

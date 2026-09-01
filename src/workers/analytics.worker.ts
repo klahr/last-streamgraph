@@ -210,7 +210,11 @@ function compute(request: AnalyticsRequest): unknown {
     case 'seasonal':
       // Ranked by whatever Group-by names, so the same view answers "which
       // artists are my winter" or "which genres are my summer".
-      return seasonal(slice, seriesKey(groupBy), { minPlays: 12, limit: 60 });
+      return seasonal(slice, seriesKey(groupBy), {
+        minPlays: 12,
+        limit: 100,
+        otherLimit: 1500,
+      });
     case 'discovery':
       return discovery(slice, { minPlays: 5 });
     case 'rankbump':

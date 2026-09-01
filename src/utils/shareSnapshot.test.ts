@@ -8,7 +8,12 @@ import {
   isSnapshotView,
   type Snapshot,
 } from './shareSnapshot';
-import type { DailyCounts, RetentionData, SeasonalData } from './analytics';
+import type {
+  DailyCounts,
+  RetentionData,
+  SeasonalData,
+  SeasonalKey,
+} from './analytics';
 import { shareTitleFor } from '../viewMeta';
 
 const base: Omit<Snapshot, 'view' | 'payload'> = {
@@ -120,6 +125,8 @@ describe('shareSnapshot', () => {
     const payload: SeasonalData = {
       months: new Array(12).fill(5),
       coverage: new Array(12).fill(30),
+      others: [],
+      unprofiled: 4,
       oneYearOnly: 2,
       notSeasonal: 1,
       playFloor: 12,
@@ -137,6 +144,7 @@ describe('shareSnapshot', () => {
           activeYears: 3,
           agreeingYears: 3,
           score: 1,
+          reason: 'ranked',
         },
       ],
     };
@@ -146,6 +154,40 @@ describe('shareSnapshot', () => {
     expect(out.payload as SeasonalData).toEqual(payload);
     const encoded = await encodeSnapshot(snap('seasonal', payload));
     expect(encoded).not.toContain('lift');
+  });
+
+  it('leaves the sharer\'s unranked library index out of the link', async () => {
+    // `others` backs the app's search box. It is the biggest thing in the
+    // payload and it is the sharer's whole library, neither of which belongs in
+    // a link that says "here is this one chart".
+    const unranked: SeasonalKey = {
+      key: 'Someone Obscure',
+      plays: 9,
+      byMonth: [9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      lift: [12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      peakMonth: 0,
+      peakLift: 4,
+      strength: 1,
+      chanceDrift: 0.3,
+      activeYears: 1,
+      agreeingYears: 0,
+      score: 0,
+      reason: 'one-year',
+    };
+    const payload: SeasonalData = {
+      months: new Array(12).fill(5),
+      coverage: new Array(12).fill(30),
+      keys: [],
+      others: [unranked],
+      unprofiled: 0,
+      oneYearOnly: 1,
+      notSeasonal: 0,
+      playFloor: 12,
+      total: 60,
+    };
+    const out = await roundTrip(snap('seasonal', payload));
+    expect((out.payload as SeasonalData).others).toEqual([]);
+    expect(await encodeSnapshot(snap('seasonal', payload))).not.toContain('Obscure');
   });
 
   it('refuses a fragment from a different snapshot version', async () => {

@@ -66,8 +66,10 @@ Once you've connected your account, you can explore your music in lots of ways:
   lengths and a mid-year account start cancel out instead of masquerading as a
   summer bump. Ranked by how tightly a name clusters in the calendar *and* how
   many separate years agree on when — one hot summer is a phase, not a season.
-  A name has to be half a percent of your listening to earn a card, and the
-  results filter by name, peak season, or play count.
+  A name has to be half a percent of your listening to earn a card. The chips
+  slice that ranking by peak season and play count; the search box goes wider and
+  covers everything you've synced, so an artist that didn't rank still comes back
+  — with its year drawn and the reason it was left out.
 - **Discovery** — a timeline of when you found each artist.
 - **Rank** — how your top artists rise and fall against each other.
 - **Affinity network** — clusters the artists you tend to play together.

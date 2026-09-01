@@ -100,11 +100,17 @@ const TRIMS: Partial<
   seasonal: {
     // Guarded because a link being re-shared can carry an older payload that
     // never had `keys` at all; those pass through untouched.
+    //
+    // `others` is dropped outright: it exists so the app's search box can find
+    // a name that didn't rank, and shipping a sharer's whole library index to a
+    // reader would be both the largest thing in the link and more of the
+    // sharer's listening than the one chart they chose to send.
     pack: (d: SeasonalData | LegacySeasonal | number[]) =>
       Array.isArray(d) || !Array.isArray((d as SeasonalData).keys)
         ? d
         : {
             ...(d as SeasonalData),
+            others: [],
             keys: (d as SeasonalData).keys.map(({ lift: _lift, ...rest }) => rest),
           },
     unpack: (d: SeasonalData | LegacySeasonal | number[]): SeasonalData => {
@@ -113,6 +119,8 @@ const TRIMS: Partial<
         const full = d as SeasonalData;
         return {
           ...full,
+          others: full.others ?? [],
+          unprofiled: full.unprofiled ?? 0,
           keys: full.keys.map((k) => ({
             ...k,
             lift: k.byMonth.map((v, m) =>
@@ -125,6 +133,8 @@ const TRIMS: Partial<
         months,
         coverage: new Array<number>(12).fill(0),
         keys: [],
+        others: [],
+        unprofiled: 0,
         oneYearOnly: 0,
         notSeasonal: 0,
         playFloor: 0,

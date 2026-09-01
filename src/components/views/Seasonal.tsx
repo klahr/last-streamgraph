@@ -44,8 +44,13 @@ const LOG_RANGE = 2;
 const FLAT_YEAR_FLOOR = Math.log2(1.1);
 /** CIE lightness floor for palette-coloured text on the card background. */
 const MIN_TEXT_LIGHTNESS = 62;
-/** Cards drawn at once. The worker ranks deeper so the filters have material. */
-const SHOWN = 24;
+/**
+ * Cap on unranked search hits drawn at once. The ranking itself is shown whole
+ * — every entry in it is seasonal by construction, so there is nothing to spare
+ * the reader — but a one-letter query can match a thousand library entries, and
+ * rendering those is neither useful nor fast.
+ */
+const MAX_HITS = 60;
 /**
  * Candidate play thresholds. Only the ones that would actually cut the current
  * list are offered, so a small library isn't handed a "1000+" button that
@@ -80,7 +85,8 @@ const plural = (n: number, one: string, many: string) =>
 
 export function Seasonal({ data, palette, groupBy, hasGenres }: SeasonalProps) {
   const interp = useMemo(() => interpolatorFor(palette), [palette]);
-  const { months, coverage, keys, oneYearOnly, notSeasonal, playFloor, total } = data;
+  const { months, coverage, keys, others, unprofiled, oneYearOnly, notSeasonal, playFloor, total } =
+    data;
 
   // Hooks run before the empty-state guards below, which return early.
   const [query, setQuery] = useState('');
@@ -92,15 +98,27 @@ export function Seasonal({ data, palette, groupBy, hasGenres }: SeasonalProps) {
     setMinPlays(0);
   };
 
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return keys.filter(
-      (k) =>
-        k.plays >= minPlays &&
-        (season === null || SEASON_OF_MONTH[k.peakMonth] === season) &&
-        (q === '' || k.key.toLowerCase().includes(q)),
-    );
-  }, [keys, query, season, minPlays]);
+  const q = query.trim().toLowerCase();
+
+  const visible = useMemo(
+    () =>
+      keys.filter(
+        (k) =>
+          k.plays >= minPlays &&
+          (season === null || SEASON_OF_MONTH[k.peakMonth] === season) &&
+          (q === '' || k.key.toLowerCase().includes(q)),
+      ),
+    [keys, q, season, minPlays],
+  );
+
+  // Typing a name searches everything synced, not just what ranked. The chips
+  // are for slicing the ranking; the search box is for "I know I have this,
+  // where did it go" — and answering that with a blank result reads like the
+  // sync dropped the artist rather than the metric declining to rank it.
+  const hits = useMemo(
+    () => (q === '' ? [] : others.filter((k) => k.key.toLowerCase().includes(q))),
+    [others, q],
+  );
 
   // Only genre grouping depends on the rate-limited tag fetch; artists and
   // albums are in the scrobbles already and draw immediately.
@@ -143,8 +161,8 @@ export function Seasonal({ data, palette, groupBy, hasGenres }: SeasonalProps) {
           onSeason={setSeason}
           minPlays={minPlays}
           onMinPlays={setMinPlays}
-          shown={Math.min(visible.length, SHOWN)}
           matched={visible.length}
+          hits={hits.length}
           ofTotal={keys.length}
         />
       )}
@@ -158,25 +176,48 @@ export function Seasonal({ data, palette, groupBy, hasGenres }: SeasonalProps) {
               : `No ${many} reach the ${playFloor.toLocaleString()} plays needed to read a yearly shape from. Try a wider range.`}
         </p>
       ) : (
-        <div className="mt-3 flex flex-wrap gap-3">
-          {visible.slice(0, SHOWN).map((k) => (
-            <div key={k.key} className="w-full sm:w-[340px]">
-              <Card k={k} interp={interp} />
+        <>
+          <div className="mt-3 flex flex-wrap gap-3">
+            {visible.map((k) => (
+              <div key={k.key} className="w-full sm:w-[340px]">
+                <Card k={k} interp={interp} />
+              </div>
+            ))}
+            {visible.length === 0 && hits.length === 0 && (
+              <p className="text-sm text-slate-500">
+                Nothing matches{q ? ` “${query.trim()}”` : ' this filter'}
+                {q && unprofiled > 0
+                  ? `, and ${unprofiled.toLocaleString()} ${many} are played too little to look up.`
+                  : '.'}{' '}
+                <button
+                  onClick={reset}
+                  className="text-sky-400 underline underline-offset-2 hover:text-sky-300"
+                >
+                  Clear it
+                </button>{' '}
+                to see all {keys.length}.
+              </p>
+            )}
+          </div>
+
+          {hits.length > 0 && (
+            <div className="mt-6">
+              <p className="mb-2 text-[11px] text-slate-500">
+                {visible.length > 0 ? 'Also in your library' : 'In your library'}, but
+                not seasonal enough to rank — showing{' '}
+                {Math.min(hits.length, MAX_HITS).toLocaleString()}
+                {hits.length > MAX_HITS && ` of ${hits.length.toLocaleString()}`}:
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {hits.slice(0, MAX_HITS).map((k) => (
+                  <div key={k.key} className="w-full sm:w-[340px]">
+                    <Card k={k} interp={interp} muted playFloor={playFloor} />
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
-          {visible.length === 0 && (
-            <p className="text-sm text-slate-500">
-              No {many} match this filter.{' '}
-              <button
-                onClick={reset}
-                className="text-sky-400 underline underline-offset-2 hover:text-sky-300"
-              >
-                Clear it
-              </button>{' '}
-              to see all {keys.length}.
-            </p>
           )}
-        </div>
+        </>
       )}
 
       {keys.length > 0 && (
@@ -218,8 +259,8 @@ function FilterBar({
   onSeason,
   minPlays,
   onMinPlays,
-  shown,
   matched,
+  hits,
   ofTotal,
 }: {
   keys: SeasonalKey[];
@@ -230,8 +271,8 @@ function FilterBar({
   onSeason: (v: number | null) => void;
   minPlays: number;
   onMinPlays: (v: number) => void;
-  shown: number;
   matched: number;
+  hits: number;
   ofTotal: number;
 }) {
   // Only seasons that something actually peaks in, and only thresholds that
@@ -246,8 +287,8 @@ function FilterBar({
       <input
         value={query}
         onChange={(e) => onQuery(e.target.value)}
-        placeholder={`Find ${many}…`}
-        aria-label={`Find ${many}`}
+        placeholder={`Search all ${many}…`}
+        aria-label={`Search all ${many}`}
         className="w-40 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200 placeholder:text-slate-500 focus:border-sky-600 focus:outline-none"
       />
 
@@ -277,9 +318,9 @@ function FilterBar({
 
       <span className="text-slate-500">
         {matched === ofTotal
-          ? `${ofTotal} ranked`
-          : `${matched} of ${ofTotal}`}
-        {shown < matched && ` · showing top ${shown}`}
+          ? `${ofTotal.toLocaleString()} ranked`
+          : `${matched.toLocaleString()} of ${ofTotal.toLocaleString()} ranked`}
+        {hits > 0 && ` · ${hits.toLocaleString()} more in your library`}
       </span>
     </div>
   );
@@ -447,16 +488,44 @@ function Baseline({ y }: { y: number }) {
   );
 }
 
-function Card({ k, interp }: { k: SeasonalKey; interp: (t: number) => string }) {
+/**
+ * `muted` marks a card reached by search rather than by ranking. It still draws
+ * the full profile — that profile is the answer to "why isn't this here?" — but
+ * says plainly which test the key failed, so nobody reads its bars as a season
+ * the metric endorsed.
+ */
+function Card({
+  k,
+  interp,
+  muted = false,
+  playFloor = 0,
+}: {
+  k: SeasonalKey;
+  interp: (t: number) => string;
+  muted?: boolean;
+  playFloor?: number;
+}) {
   const accent = readable(interp(k.peakMonth / 11));
 
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/60 p-2">
+    <div
+      className={`rounded-md border p-2 ${
+        muted
+          ? 'border-dashed border-slate-800 bg-slate-900/30'
+          : 'border-slate-800 bg-slate-900/60'
+      }`}
+    >
       <div className="mb-0.5 flex items-baseline justify-between gap-2">
-        <span className="truncate text-sm text-slate-200" title={k.key}>
+        <span
+          className={`truncate text-sm ${muted ? 'text-slate-400' : 'text-slate-200'}`}
+          title={k.key}
+        >
           {k.key}
         </span>
-        <span className="shrink-0 text-xs font-medium" style={{ color: accent }}>
+        <span
+          className="shrink-0 text-xs font-medium"
+          style={{ color: muted ? '#64748b' : accent }}
+        >
           {k.peakLift.toFixed(1)}× {windowLabel(k.peakMonth)}
         </span>
       </div>
@@ -464,19 +533,39 @@ function Card({ k, interp }: { k: SeasonalKey; interp: (t: number) => string }) 
         <span className="truncate text-xs text-slate-500">
           {k.plays.toLocaleString()} plays · peaks in {MONTHS[k.peakMonth]}
         </span>
-        <span
-          className="shrink-0 text-[10px] text-slate-600"
-          title={
-            `${k.agreeingYears} of ${k.activeYears} calendar years peak within two ` +
-            `months of ${MONTHS[k.peakMonth]}. Concentration ${(k.strength * 100).toFixed(0)}%.`
-          }
-        >
-          {k.agreeingYears}/{k.activeYears} years agree
-        </span>
+        {muted ? (
+          <span className="shrink-0 text-[10px] italic text-slate-600">
+            {whyNot(k, playFloor)}
+          </span>
+        ) : (
+          <span
+            className="shrink-0 text-[10px] text-slate-600"
+            title={
+              `${k.agreeingYears} of ${k.activeYears} calendar years peak within two ` +
+              `months of ${MONTHS[k.peakMonth]}. Concentration ${(k.strength * 100).toFixed(0)}%.`
+            }
+          >
+            {k.agreeingYears}/{k.activeYears} years agree
+          </span>
+        )}
       </div>
       <LiftChart k={k} interp={interp} />
     </div>
   );
+}
+
+/** The one-phrase reason a searched key isn't in the ranking. */
+function whyNot(k: SeasonalKey, playFloor: number): string {
+  switch (k.reason) {
+    case 'thin':
+      return `under ${playFloor.toLocaleString()} plays`;
+    case 'one-year':
+      return k.activeYears === 0 ? 'one burst only' : 'only one year';
+    case 'flat':
+      return k.agreeingYears < 2 ? 'years disagree' : 'too flat';
+    default:
+      return '';
+  }
 }
 
 /**
