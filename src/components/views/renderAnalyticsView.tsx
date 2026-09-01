@@ -16,7 +16,7 @@ import type { Size } from '../../hooks/useResizeObserver';
 import type { GroupBy, PaletteId } from '../../types';
 import { Punchcard } from './Punchcard';
 import { CalendarHeatmap } from './CalendarHeatmap';
-import { SeasonalRadial } from './SeasonalRadial';
+import { Seasonal } from './Seasonal';
 import { DiscoveryTimeline } from './DiscoveryTimeline';
 import { RankBump } from './RankBump';
 import { Sunburst } from './Sunburst';
@@ -67,8 +67,12 @@ export function renderAnalyticsView({
     case 'calendar':
       return <CalendarHeatmap data={result.payload} {...d} />;
     case 'seasonal':
+      // Keyed on groupBy so switching Artists→Genres remounts: the view's name
+      // filter holds a term from a vocabulary the new grouping doesn't share,
+      // and silently matching nothing would read as an empty chart.
       return (
-        <SeasonalRadial
+        <Seasonal
+          key={groupBy}
           data={result.payload}
           {...d}
           groupBy={groupBy}

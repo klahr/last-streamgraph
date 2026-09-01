@@ -44,9 +44,12 @@ Once you've connected your account, you can explore your music in lots of ways:
   their last, so you can see who stayed for a decade and who burned bright for a
   fortnight.
 - **Retention** — how fast each year's discoveries faded. Artists are grouped by
-  the year you found them, then laid out by months since their debut, with a
-  half-life per year: did your 2019 obsessions burn out in six weeks while your
-  2015 ones settled into rotation?
+  the year you found them, and each year gets a *half-life*: the age by which
+  half the plays that batch would ever give you had already happened. One bar per
+  year on a shared scale, so the trend in your own attention is just the shape of
+  the column — did your 2019 obsessions burn out in six weeks while your 2015 ones
+  settled into rotation? Cohorts too young to judge are drawn hollow, not guessed
+  at.
 - **Year on year** — every year as its own cumulative curve on one day-of-year
   axis. Which year was the heavy one, and are you ahead of where you were this
   time last year?
@@ -58,10 +61,13 @@ Once you've connected your account, you can explore your music in lots of ways:
 - **Albums** — breadth against depth. How many of an album's tracks you've played
   versus how often; the ones you lived inside pull away from the ones you sampled
   once.
-- **Seasonal** — which months of the year you listen most, ringed by each season's
-  signature: the artist (or genre, or album) that takes a bigger share of that
-  season than of your listening overall. Not your most-played — that would just
-  name your all-time favourite four times over.
+- **Seasonal** — which artists (or genres, or albums) belong to a time of year.
+  Every month is measured against your own listening that month, so unequal month
+  lengths and a mid-year account start cancel out instead of masquerading as a
+  summer bump. Ranked by how tightly a name clusters in the calendar *and* how
+  many separate years agree on when — one hot summer is a phase, not a season.
+  A name has to be half a percent of your listening to earn a card, and the
+  results filter by name, peak season, or play count.
 - **Discovery** — a timeline of when you found each artist.
 - **Rank** — how your top artists rise and fall against each other.
 - **Affinity network** — clusters the artists you tend to play together.
@@ -90,7 +96,7 @@ saved in your browser so it loads instantly next time.
 
 ## Gallery
 
-![Seasonal listening — monthly volume, ringed by each season's signature artist](docs/seasonal.png)
+![Seasonal listening — the artists that belong to a time of year, ranked](docs/seasonal.png)
 ![The discovery timeline — when you found each artist](docs/discovery.png)
 ![A playful forecast of each genre's trend](docs/forecast.png)
 

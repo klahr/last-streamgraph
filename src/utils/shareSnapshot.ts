@@ -22,8 +22,13 @@
  */
 import type { GroupBy, PaletteId, View } from '../types';
 import type { AnalyticsViewResult } from '../hooks/useAnalytics';
-import { SEASONS } from './analytics';
 import type { DailyCounts, RetentionData, SeasonalData } from './analytics';
+
+/** The months + season-signature shape seasonal links carried before the ranking. */
+interface LegacySeasonal {
+  months: number[];
+  total: number;
+}
 
 /** Views that can travel in a link — everything the analytics worker computes. */
 export type SnapshotView = AnalyticsViewResult['view'];
@@ -84,24 +89,46 @@ const TRIMS: Partial<
       byDay: new Map(d.byDay),
     }),
   },
-  // Links shared before the season ring existed carry a bare 12-number array.
-  // Upgrading them here keeps every old link alive; bumping SNAPSHOT_VERSION
-  // for this would have invalidated every link for every view instead. Such a
-  // link plots its months as it always did — the signatures simply aren't in
-  // it, and the ring says so rather than inventing them.
+  // Seasonal has shipped three payload shapes: a bare 12-number array, then a
+  // months + season-signature object, now a ranked-key object. Both older
+  // shapes are upgraded here rather than by bumping SNAPSHOT_VERSION, which
+  // would have invalidated every link for every view at once. Neither carries
+  // the ranking, and neither carries the day counts behind it, so they unpack
+  // to an empty ranking and a zeroed coverage — the view then shows the plays
+  // it does have and says the rest isn't in the link, rather than inventing a
+  // seasonality nobody measured.
   seasonal: {
-    pack: (d: SeasonalData) => d,
-    unpack: (d: SeasonalData | number[]) => {
-      if (!Array.isArray(d)) return d;
-      const seasons = SEASONS.map((_, i) => ({
-        plays: SEASONS[i]!.monthIndices.reduce((a, m) => a + (d[m] ?? 0), 0),
-        signature: null,
-      }));
+    // Guarded because a link being re-shared can carry an older payload that
+    // never had `keys` at all; those pass through untouched.
+    pack: (d: SeasonalData | LegacySeasonal | number[]) =>
+      Array.isArray(d) || !Array.isArray((d as SeasonalData).keys)
+        ? d
+        : {
+            ...(d as SeasonalData),
+            keys: (d as SeasonalData).keys.map(({ lift: _lift, ...rest }) => rest),
+          },
+    unpack: (d: SeasonalData | LegacySeasonal | number[]): SeasonalData => {
+      const months = Array.isArray(d) ? d : d.months;
+      if (!Array.isArray(d) && Array.isArray((d as SeasonalData).keys)) {
+        const full = d as SeasonalData;
+        return {
+          ...full,
+          keys: full.keys.map((k) => ({
+            ...k,
+            lift: k.byMonth.map((v, m) =>
+              months[m]! > 0 ? v / k.plays / (months[m]! / full.total) : 0,
+            ),
+          })),
+        };
+      }
       return {
-        months: d,
-        monthSignatures: d.map(() => null),
-        seasons,
-        total: d.reduce((a, b) => a + b, 0),
+        months,
+        coverage: new Array<number>(12).fill(0),
+        keys: [],
+        oneYearOnly: 0,
+        notSeasonal: 0,
+        playFloor: 0,
+        total: months.reduce((a, b) => a + b, 0),
       };
     },
   },

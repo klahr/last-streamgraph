@@ -4,7 +4,7 @@
  * payload — nothing here recomputes or infers anything the chart isn't already
  * drawing.
  */
-import { SEASONS } from './analytics';
+import { SEASONS, SEASON_OF_MONTH } from './analytics';
 import type { Snapshot } from './shareSnapshot';
 import type {
   AlbumDepth,
@@ -48,19 +48,15 @@ export function snapshotFacts(snapshot: Snapshot): Fact[] {
     case 'seasonal': {
       const d = p as SeasonalData;
       const facts: Fact[] = [{ label: 'plays', value: n(d.total) }];
-      // The season whose signature stands out most — the one line of this chart
-      // worth reading before the chart itself.
-      let peak = -1;
-      d.seasons.forEach((s, i) => {
-        const lift = s.signature?.distinctive ? s.signature.lift : 0;
-        if (lift > (peak < 0 ? 0 : d.seasons[peak]!.signature!.lift)) peak = i;
-      });
-      const top = peak >= 0 ? d.seasons[peak]!.signature! : null;
+      // The top-ranked key is the one line of this chart worth reading before
+      // the chart itself. Old links carry no ranking; they just show the plays.
+      const top = d.keys?.[0];
       if (top) {
         facts.push({
-          label: `${SEASONS[peak]!.name.toLowerCase()} signature`,
+          label: `most ${SEASONS[SEASON_OF_MONTH[top.peakMonth]!]!.name.toLowerCase()}`,
           value: top.key,
         });
+        facts.push({ label: 'at its peak', value: `${top.peakLift.toFixed(1)}×` });
       }
       return facts;
     }

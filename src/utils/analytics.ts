@@ -68,8 +68,7 @@ export function dailyCounts(scrobbles: readonly CountableScrobble[]): DailyCount
 
 /**
  * Meteorological seasons, northern hemisphere: winter starts in December and
- * so straddles the year boundary. `monthIndices` runs in season order, which
- * the radial view leans on to place each arc.
+ * so straddles the year boundary. `monthIndices` runs in season order.
  */
 export const SEASONS: { name: string; months: string; monthIndices: number[] }[] = [
   { name: 'Winter', months: 'Dec–Feb', monthIndices: [11, 0, 1] },
@@ -79,135 +78,353 @@ export const SEASONS: { name: string; months: string; monthIndices: number[] }[]
 ];
 
 /** Season index per month-of-year, index 0 = January. Derived, not restated. */
-const SEASON_OF_MONTH = SEASONS.reduce((acc, season, i) => {
+export const SEASON_OF_MONTH = SEASONS.reduce((acc, season, i) => {
   for (const m of season.monthIndices) acc[m] = i;
   return acc;
 }, new Array<number>(12).fill(0));
 
-/** The artist/genre/album that most defines a month or a season. */
-export interface SeasonalSignature {
+/** A year needs this many plays of a key before it gets a vote on the peak. */
+const YEAR_VOTE_FLOOR = 3;
+/** A year's own peak counts as agreeing within ±2 months of the overall peak. */
+const AGREE_MONTHS = 2;
+/**
+ * Calling something seasonal means claiming its peak months are meaningfully
+ * busier than usual. A quarter more than usual is the least that deserves the
+ * word; below it the profile is your ordinary listening with rounding on top.
+ */
+const MIN_PEAK_LIFT = 1.25;
+/** And at least two separate years have to point the same way. */
+const MIN_AGREEING_YEARS = 2;
+/**
+ * Share of all plays a key needs before it is worth a card. A fixed count
+ * cannot do this job: twelve plays is a real habit in a thousand-play library
+ * and a rounding error in a fifty-thousand-play one, and the fixed floor is
+ * what let a thirty-play artist head a ranking over one played nine hundred
+ * times. Concentration does not fall with size — a name you played six times a
+ * year, always in December, is *genuinely* more concentrated than a favourite
+ * — so no amount of statistical correction demotes it. It simply isn't
+ * something the listener wants a card about, which is a question of relevance,
+ * not of evidence, and belongs in a floor rather than in the score.
+ */
+const MIN_SHARE = 0.005;
+/**
+ * ...but the floor must never empty the view: it is capped at whatever the
+ * MIN_CANDIDATES-th biggest key has, so a library too diffuse for anything to
+ * reach {@link MIN_SHARE} still gets a ranking. Kept small deliberately — set
+ * generously it stops being a safety net and starts readmitting the tail it
+ * exists to exclude.
+ */
+const MIN_CANDIDATES = 8;
+
+/** One artist/genre/album that recurs at the same time of year. */
+export interface SeasonalKey {
   /** Name, per the caller's key function — an artist, genre or album. */
   key: string;
-  /** Its plays inside this slot. */
+  /** Its total plays in range. */
   plays: number;
-  /** Its share of the slot's plays, 0..1. */
-  share: number;
+  /** Raw plays per calendar month, index 0 = January. */
+  byMonth: number[];
   /**
-   * `share` divided by the same key's share of *all* plays in range. 1 means
-   * exactly as prominent here as everywhere; 2 means twice its usual pull.
+   * Per month: this key's share of its own plays, divided by that month's
+   * share of *all* plays. 1 means exactly as prominent that month as usual;
+   * 2 means twice. Dividing by the overall month profile is what cancels
+   * unequal month lengths and an account that started mid-year — both are
+   * already baked into the denominator.
    */
-  lift: number;
-  /** False when nothing cleared the noise floor and this is the raw top key. */
-  distinctive: boolean;
-}
-
-export interface SeasonalSlot {
-  plays: number;
-  signature: SeasonalSignature | null;
+  lift: number[];
+  /** Rounded circular mean of the lift profile, 0 = January. */
+  peakMonth: number;
+  /** Mean lift across the three months centred on {@link peakMonth}. */
+  peakLift: number;
+  /** Circular concentration of the lift profile: 0 = flat, 1 = a single month. */
+  strength: number;
+  /**
+   * How much concentration this many plays produces by luck alone. Twelve plays
+   * land lopsidedly across twelve months most of the time; eight hundred do
+   * not. Ranking subtracts this from {@link strength}, so a thin key has to be
+   * far more concentrated than a thick one to place above it.
+   */
+  chanceDrift: number;
+  /** Calendar years holding at least {@link YEAR_VOTE_FLOOR} plays of this key. */
+  activeYears: number;
+  /** How many of those years peak within {@link AGREE_MONTHS} of `peakMonth`. */
+  agreeingYears: number;
+  /** `strength × (agreeingYears / activeYears)` — the ranking key. */
+  score: number;
 }
 
 export interface SeasonalData {
-  /** Plays per month-of-year, index 0 = January. */
+  /** Plays per calendar month, index 0 = January. */
   months: number[];
-  /** Signature per month-of-year, index 0 = January. */
-  monthSignatures: (SeasonalSignature | null)[];
-  /** The four {@link SEASONS}, index 0 = winter. */
-  seasons: SeasonalSlot[];
+  /**
+   * Days of the range that fell in each calendar month — the exposure behind
+   * `months`. `months[m] / coverage[m]` is a plays-per-day rate that unequal
+   * month lengths and a partial first year can't distort.
+   */
+  coverage: number[];
+  /** Keys that recur at the same time of year, best {@link SeasonalKey.score} first. */
+  keys: SeasonalKey[];
+  /** Keys that cleared the play floor but appear in only one calendar year. */
+  oneYearOnly: number;
+  /** Keys with the plays and the years, but no peak worth the word "seasonal". */
+  notSeasonal: number;
+  /** Plays a key needed to be considered at all — see {@link MIN_SHARE}. */
+  playFloor: number;
   total: number;
 }
 
+/** Days of the range falling in each calendar month. Local time, DST-safe. */
+function monthCoverage(firstMs: number, lastMs: number): number[] {
+  const days = new Array<number>(12).fill(0);
+  if (!Number.isFinite(firstMs) || !Number.isFinite(lastMs) || lastMs < firstMs) {
+    return days;
+  }
+  const d = new Date(firstMs);
+  d.setHours(0, 0, 0, 0);
+  const end = new Date(lastMs);
+  end.setHours(0, 0, 0, 0);
+  // Stepping by calendar date rather than by 86.4e6 ms keeps the count right
+  // across DST transitions, where a "day" is 23 or 25 hours long.
+  while (d.getTime() <= end.getTime()) {
+    days[d.getMonth()] += 1;
+    d.setDate(d.getDate() + 1);
+  }
+  return days;
+}
+
+const TAU = 2 * Math.PI;
+/** Month index → angle on the year circle. */
+const angleOf = (m: number) => (TAU * m) / 12;
+
 /**
- * Month-of-year volume (summed across years) plus, for each month and each
- * season, the key that most defines it.
+ * Circular mean of a 12-slot weight profile, as a fractional month in [0, 12),
+ * together with the resultant length (0 = perfectly flat, 1 = all one month).
  *
- * "Most defines" is deliberately *not* the most-played key. Ranking a season by
- * raw play count just re-elects whoever you play most overall, so all twelve
- * months name the same artist and the chart says nothing seasonal. Instead a
- * signature is the key whose share of that slot most exceeds its share of your
- * listening as a whole — a lift index. That's the one that answers "what do I
- * put on in December that I don't put on in June".
+ * Months are a cycle, so December and January are neighbours. A plain mean or
+ * variance over month *indices* would put the centre of a Dec/Jan habit in
+ * June; summing unit vectors and taking the argument gets it right.
+ */
+function circularPeak(weights: readonly number[]): { month: number; strength: number } {
+  let vx = 0;
+  let vy = 0;
+  let sum = 0;
+  for (let m = 0; m < 12; m++) {
+    const w = weights[m] ?? 0;
+    if (w <= 0) continue;
+    vx += w * Math.cos(angleOf(m));
+    vy += w * Math.sin(angleOf(m));
+    sum += w;
+  }
+  if (sum === 0) return { month: 0, strength: 0 };
+  const r = Math.hypot(vx, vy);
+  const month = (((Math.atan2(vy, vx) / TAU) * 12) + 12) % 12;
+  return { month, strength: r / sum };
+}
+
+/**
+ * Roughly how concentrated a profile built from `n` plays looks when there is
+ * no seasonality at all.
  *
- * Lift explodes on small numbers (an artist played 3 times, all in one January,
- * scores an infinite-looking lift), so a key must clear a noise floor —
- * `minPlays`, or 0.5% of the slot, whichever is larger — to be eligible. When
- * nothing clears it (a thin range, a new account), the slot falls back to its
- * raw top key flagged `distinctive: false` rather than going unlabelled.
+ * Concentration is biased upward by small samples: scatter twelve plays across
+ * twelve months and they will not come out one per month, they will clump, and
+ * the clump has a direction. For n draws from a uniform circle the resultant
+ * length averages about sqrt(pi/4n) — 0.26 at twelve plays, 0.03 at eight
+ * hundred — which is why an artist with a dozen plays could otherwise top this
+ * ranking over one with a genuine decade-long winter habit.
+ *
+ * This is the uniform-circle result applied to a profile that has been
+ * reweighted by lift, so it is an approximation used to order a list, not a
+ * significance test, and nothing here reports a p-value.
+ */
+const chanceConcentration = (n: number) =>
+  n > 0 ? Math.min(0.95, Math.sqrt(Math.PI / (4 * n))) : 0.95;
+
+/** Distance between two fractional months around the 12-month circle, 0..6. */
+function monthDistance(a: number, b: number): number {
+  const d = Math.abs(a - b) % 12;
+  return Math.min(d, 12 - d);
+}
+
+/**
+ * Which of your music belongs to a time of year.
+ *
+ * Two things make this more than a month histogram:
+ *
+ * 1. **Every count is read against your own listening**, not against the
+ *    calendar. A key's month profile is divided by *your* month profile, so a
+ *    month that is longer, or that your account has simply lived through one
+ *    more time, contributes to both sides and cancels. Raw month totals can
+ *    show a 1.3× "summer bump" for someone whose listening is perfectly flat —
+ *    that bump is the calendar, and this metric removes it.
+ *
+ * 2. **Evidence is weighed.** Concentration is biased upward by small samples,
+ *    so the ranking subtracts the concentration that this many plays would
+ *    show by luck alone — see {@link chanceConcentration}. Without it a
+ *    twelve-play artist that happened to land in one January outranks a decade
+ *    of December habit.
+ *
+ * 3. **A habit has to repeat.** An artist discovered one June and dropped by
+ *    August looks intensely seasonal to any all-time metric, but it is a phase,
+ *    not a season. So each calendar year with enough plays votes on its own
+ *    peak, and a key is ranked by how concentrated its profile is *times* the
+ *    fraction of its years that agree on when. One-year keys are excluded and
+ *    counted in `oneYearOnly` rather than silently dropped.
+ *
+ * `minPlays` is the *absolute* lower bound on that floor; the floor actually
+ * used is {@link MIN_SHARE} of your listening, since lift is violently unstable
+ * on small counts (three plays that all land in one January score an enormous
+ * lift on no evidence) and a key too small to matter is noise however clean its
+ * shape. What survives both floors still has to clear
+ * {@link MIN_PEAK_LIFT} and {@link MIN_AGREEING_YEARS} to be called seasonal —
+ * a list padded with 1.1x "peaks" whose years disagree is a list that has
+ * stopped meaning anything. Everything turned away is counted, not hidden.
  *
  * Local time, like the other calendar-shaped views.
  */
 export function seasonal(
   scrobbles: readonly CountableScrobble[],
   keyOf: (s: CountableScrobble) => string = (s) => s.artist,
-  opts: { minPlays?: number } = {},
+  opts: { minPlays?: number; limit?: number } = {},
 ): SeasonalData {
-  const minPlays = Math.max(1, opts.minPlays ?? 10);
+  const minPlays = Math.max(1, opts.minPlays ?? 12);
+  const limit = Math.max(1, opts.limit ?? 24);
+
   const months = new Array<number>(12).fill(0);
-  const seasonPlays = new Array<number>(4).fill(0);
-  const overall = new Map<string, number>();
-  const byMonth = Array.from({ length: 12 }, () => new Map<string, number>());
-  const bySeason = Array.from({ length: 4 }, () => new Map<string, number>());
+  let firstMs = Infinity;
+  let lastMs = -Infinity;
+
+  interface Acc {
+    plays: number;
+    byMonth: number[];
+    byYear: Map<number, number[]>;
+  }
+  const perKey = new Map<string, Acc>();
 
   for (const s of scrobbles) {
-    const m = new Date(s.uts * 1000).getMonth();
-    const season = SEASON_OF_MONTH[m];
+    const d = new Date(s.uts * 1000);
+    const m = d.getMonth();
     months[m] += 1;
-    seasonPlays[season] += 1;
+    const ms = d.getTime();
+    if (ms < firstMs) firstMs = ms;
+    if (ms > lastMs) lastMs = ms;
+
     const k = keyOf(s);
-    overall.set(k, (overall.get(k) ?? 0) + 1);
-    const mm = byMonth[m];
-    mm.set(k, (mm.get(k) ?? 0) + 1);
-    const sm = bySeason[season];
-    sm.set(k, (sm.get(k) ?? 0) + 1);
+    let acc = perKey.get(k);
+    if (!acc) {
+      acc = { plays: 0, byMonth: new Array<number>(12).fill(0), byYear: new Map() };
+      perKey.set(k, acc);
+    }
+    acc.plays += 1;
+    acc.byMonth[m] += 1;
+    const y = d.getFullYear();
+    let yearMonths = acc.byYear.get(y);
+    if (!yearMonths) {
+      yearMonths = new Array<number>(12).fill(0);
+      acc.byYear.set(y, yearMonths);
+    }
+    yearMonths[m] += 1;
   }
 
   const total = scrobbles.length;
-  const sign = (counts: Map<string, number>, slotTotal: number) =>
-    signatureFor(counts, slotTotal, overall, total, minPlays);
+  const coverage = monthCoverage(firstMs, lastMs);
+  if (total === 0) {
+    return {
+      months,
+      coverage,
+      keys: [],
+      oneYearOnly: 0,
+      notSeasonal: 0,
+      playFloor: minPlays,
+      total,
+    };
+  }
+
+  // Relative to the library, but never so high that it starves the view: the
+  // share-based floor is capped at whatever the MIN_CANDIDATES-th biggest key
+  // has, so that many always remain eligible no matter how flat the tail.
+  const descending = [...perKey.values()].map((a) => a.plays).sort((a, b) => b - a);
+  const playFloor = Math.max(
+    minPlays,
+    Math.min(
+      Math.ceil(total * MIN_SHARE),
+      descending[MIN_CANDIDATES - 1] ?? 0,
+    ),
+  );
+
+  /** Each month's share of all plays — the denominator that cancels the calendar. */
+  const monthShare = months.map((v) => v / total);
+
+  const keys: SeasonalKey[] = [];
+  let oneYearOnly = 0;
+  let notSeasonal = 0;
+
+  for (const [key, acc] of perKey) {
+    if (acc.plays < playFloor) continue;
+
+    const votingYears = [...acc.byYear.values()].filter(
+      (ym) => ym.reduce((a, b) => a + b, 0) >= YEAR_VOTE_FLOOR,
+    );
+    if (votingYears.length < 2) {
+      oneYearOnly += 1;
+      continue;
+    }
+
+    const lift = acc.byMonth.map((v, m) =>
+      monthShare[m]! > 0 ? v / acc.plays / monthShare[m]! : 0,
+    );
+    const { month: peakFrac, strength } = circularPeak(lift);
+    const peakMonth = Math.round(peakFrac) % 12;
+    const chanceDrift = chanceConcentration(acc.plays);
+
+    // Each year gets one vote, cast from its own months. A year that peaks
+    // somewhere else is what separates a habit from a single hot summer.
+    const agreeingYears = votingYears.filter(
+      (ym) => monthDistance(circularPeak(ym).month, peakFrac) <= AGREE_MONTHS,
+    ).length;
+
+    // Headline number over the three months centred on the peak: one month's
+    // lift is jumpy, and a season is what the label claims anyway.
+    const window = [peakMonth + 11, peakMonth, peakMonth + 1].map((m) => lift[m % 12]!);
+    const peakLift = window.reduce((a, b) => a + b, 0) / 3;
+
+    if (peakLift < MIN_PEAK_LIFT || agreeingYears < MIN_AGREEING_YEARS) {
+      notSeasonal += 1;
+      continue;
+    }
+
+    keys.push({
+      key,
+      plays: acc.plays,
+      byMonth: acc.byMonth,
+      lift,
+      peakMonth,
+      peakLift,
+      strength,
+      chanceDrift,
+      activeYears: votingYears.length,
+      agreeingYears,
+      score:
+        Math.max(0, (strength - chanceDrift) / (1 - chanceDrift)) *
+        (agreeingYears / votingYears.length),
+    });
+  }
+
+  // Ties break toward more plays, then by name, so the order never depends on
+  // Map iteration order.
+  keys.sort(
+    (a, b) =>
+      b.score - a.score || b.plays - a.plays || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+  );
 
   return {
     months,
-    monthSignatures: months.map((plays, m) => sign(byMonth[m], plays)),
-    seasons: seasonPlays.map((plays, i) => ({
-      plays,
-      signature: sign(bySeason[i], plays),
-    })),
+    coverage,
+    keys: keys.slice(0, limit),
+    oneYearOnly,
+    notSeasonal,
+    playFloor,
     total,
   };
-}
-
-/**
- * Highest-lift key in one slot, subject to the noise floor; the raw top key by
- * plays if nothing clears it. Ties break toward the bigger key, then by name,
- * so the result never depends on Map iteration order.
- */
-function signatureFor(
-  counts: Map<string, number>,
-  slotTotal: number,
-  overall: Map<string, number>,
-  total: number,
-  minPlays: number,
-): SeasonalSignature | null {
-  if (slotTotal === 0 || total === 0) return null;
-  const floor = Math.max(minPlays, Math.ceil(slotTotal * 0.005));
-
-  let best: SeasonalSignature | null = null;
-  let top: SeasonalSignature | null = null;
-  for (const [key, plays] of counts) {
-    const share = plays / slotTotal;
-    const cand: SeasonalSignature = {
-      key,
-      plays,
-      share,
-      lift: share / ((overall.get(key) ?? plays) / total),
-      distinctive: true,
-    };
-    if (!top || plays > top.plays || (plays === top.plays && key < top.key)) top = cand;
-    if (plays < floor) continue;
-    if (!best || cand.lift > best.lift || (cand.lift === best.lift && (plays > best.plays || (plays === best.plays && key < best.key))))
-      best = cand;
-  }
-  if (best) return best;
-  return top ? { ...top, distinctive: false } : null;
 }
 
 /* ----------------------------- Discovery --------------------------------- */

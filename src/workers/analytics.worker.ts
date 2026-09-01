@@ -208,9 +208,9 @@ function compute(request: AnalyticsRequest): unknown {
     case 'calendar':
       return dailyCounts(slice);
     case 'seasonal':
-      // Signatures are keyed by whatever Group-by names, so the same wedge can
-      // answer "my December artist" or "my December genre".
-      return seasonal(slice, seriesKey(groupBy));
+      // Ranked by whatever Group-by names, so the same view answers "which
+      // artists are my winter" or "which genres are my summer".
+      return seasonal(slice, seriesKey(groupBy), { minPlays: 12, limit: 60 });
     case 'discovery':
       return discovery(slice, { minPlays: 5 });
     case 'rankbump':

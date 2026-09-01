@@ -91,17 +91,61 @@ describe('shareSnapshot', () => {
     expect(cohort.months).toEqual([6, 3, 1]);
   });
 
-  it('upgrades a seasonal payload shared before the season ring existed', async () => {
+  it('upgrades a bare-array seasonal payload from the very first shape', async () => {
     const legacy = [9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 10];
     const out = await roundTrip(snap('seasonal', legacy));
     const d = out.payload as SeasonalData;
     expect(d.months).toEqual(legacy);
     expect(d.total).toBe(60);
-    // Winter straddles the year boundary: Dec + Jan + Feb.
-    expect(d.seasons[0]!.plays).toBe(10 + 9 + 8);
-    // The signatures simply aren't in such a link; the ring says so.
-    expect(d.seasons.every((x) => x.signature === null)).toBe(true);
-    expect(d.monthSignatures).toHaveLength(12);
+    // No ranking travelled in such a link, and none is invented for it.
+    expect(d.keys).toEqual([]);
+    expect(d.coverage).toEqual(new Array(12).fill(0));
+  });
+
+  it('upgrades a seasonal payload from the season-signature shape', async () => {
+    const legacy = {
+      months: [9, 8, 7, 6, 5, 4, 3, 2, 1, 2, 3, 10],
+      monthSignatures: new Array(12).fill(null),
+      seasons: [0, 1, 2, 3].map(() => ({ plays: 15, signature: null })),
+      total: 60,
+    };
+    const out = await roundTrip(snap('seasonal', legacy));
+    const d = out.payload as SeasonalData;
+    expect(d.months).toEqual(legacy.months);
+    expect(d.total).toBe(60);
+    expect(d.keys).toEqual([]);
+  });
+
+  it('passes a current seasonal payload through untouched', async () => {
+    const payload: SeasonalData = {
+      months: new Array(12).fill(5),
+      coverage: new Array(12).fill(30),
+      oneYearOnly: 2,
+      notSeasonal: 1,
+      playFloor: 12,
+      total: 60,
+      keys: [
+        {
+          key: 'Cozy',
+          plays: 40,
+          byMonth: [40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          lift: [12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+          peakMonth: 0,
+          peakLift: 4,
+          strength: 1,
+          chanceDrift: 0.14,
+          activeYears: 3,
+          agreeingYears: 3,
+          score: 1,
+        },
+      ],
+    };
+    const out = await roundTrip(snap('seasonal', payload));
+    // `lift` is dropped on the wire and rebuilt from byMonth/plays against the
+    // payload's own months and total, so the round trip must still be exact.
+    expect(out.payload as SeasonalData).toEqual(payload);
+    const encoded = await encodeSnapshot(snap('seasonal', payload));
+    expect(encoded).not.toContain('lift');
   });
 
   it('refuses a fragment from a different snapshot version', async () => {

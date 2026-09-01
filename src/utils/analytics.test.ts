@@ -50,78 +50,187 @@ describe('punchcard', () => {
 });
 
 describe('seasonal', () => {
-  /** n plays of `artist` in month `m` (0-based) of 2024. */
-  const many = (artist: string, m: number, n: number) =>
-    Array.from({ length: n }, (_, i) => mk(artist, new Date(2024, m, 1 + (i % 20))));
+  /** n plays of `artist` in month `m` (0-based) of `year`, spread over days. */
+  const many = (artist: string, m: number, n: number, year = 2024) =>
+    Array.from({ length: n }, (_, i) => mk(artist, new Date(year, m, 1 + (i % 20))));
 
-  it('sums plays per month-of-year', () => {
+  /** A flat baseline so month shares are defined for every month. */
+  const baseline = (years: number[], perMonth = 20) =>
+    years.flatMap((y) =>
+      Array.from({ length: 12 }, (_, m) => many('Filler', m, perMonth, y)).flat(),
+    );
+
+  it('sums plays per month-of-year and counts the days behind them', () => {
     const s = [
-      mk('A', new Date(2023, 0, 10)),
-      mk('A', new Date(2025, 0, 2)),
+      mk('A', new Date(2023, 0, 5)),
+      mk('A', new Date(2024, 0, 9)),
       mk('B', new Date(2024, 6, 1)),
     ];
-    const { months, total } = seasonal(s);
+    const { months, total, coverage } = seasonal(s);
     expect(months[0]).toBe(2); // January across years
     expect(months[6]).toBe(1); // July
     expect(total).toBe(3);
+    // The range runs Jan 5 2023 → Jul 1 2024, so January is covered twice but
+    // the first one only from the 5th. Coverage is what makes months[] readable
+    // as a rate, and it counts days actually in range — not whole months.
+    expect(coverage[0]).toBe(27 + 31);
+    expect(coverage.reduce((a, b) => a + b, 0)).toBeGreaterThan(500);
   });
 
-  it('folds months into seasons, with winter spanning the year boundary', () => {
+  it('ranks the artist that recurs at the same time of year', () => {
+    // "Big" is played far more overall and evenly; "Cozy" only ever turns up in
+    // winter, three years running. Cozy is the one that says something seasonal.
     const s = [
-      mk('A', new Date(2024, 11, 5)), // December -> winter
-      mk('A', new Date(2024, 0, 5)), // January -> winter
-      mk('A', new Date(2024, 3, 5)), // April -> spring
-      mk('A', new Date(2024, 7, 5)), // August -> summer
-      mk('A', new Date(2024, 9, 5)), // October -> autumn
+      ...baseline([2022, 2023, 2024]),
+      ...[2022, 2023, 2024].flatMap((y) => many('Cozy', 0, 30, y)), // January only
     ];
-    const { seasons } = seasonal(s);
-    expect(seasons.map((x) => x.plays)).toEqual([2, 1, 1, 1]);
+    const { keys, notSeasonal } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    // Filler's months are identical, so it isn't listed at all — a ranking
+    // padded with flat names is a ranking that has stopped meaning anything.
+    expect(keys.map((k) => k.key)).toEqual(['Cozy']);
+    expect(notSeasonal).toBe(1);
+    const top = keys[0]!;
+    expect(top.peakMonth).toBe(0);
+    expect(top.activeYears).toBe(3);
+    expect(top.agreeingYears).toBe(3);
+    expect(top.peakLift).toBeGreaterThan(1);
   });
 
-  it('names the over-represented key, not the most-played one', () => {
-    // "Big" is played twice as much overall, but "Cozy" only ever turns up in
-    // winter — that's the one that says something seasonal.
+  it('puts a December–January habit in winter, not in June', () => {
+    // Months are a cycle. Averaging the indices 11 and 0 gives 5.5 — midsummer,
+    // the opposite of the truth — so the peak has to be a circular mean.
     const s = [
-      ...many('Big', 0, 10), // January
-      ...many('Big', 6, 10), // July
-      ...many('Cozy', 0, 6), // January only
+      ...baseline([2022, 2023, 2024]),
+      ...[2022, 2023, 2024].flatMap((y) => [...many('Yule', 11, 25, y), ...many('Yule', 0, 25, y)]),
     ];
-    const { seasons, monthSignatures } = seasonal(s, (x) => x.artist, { minPlays: 5 });
-
-    const winter = seasons[0]!.signature!;
-    expect(winter.key).toBe('Cozy');
-    expect(winter.distinctive).toBe(true);
-    expect(winter.plays).toBe(6);
-    expect(winter.share).toBeCloseTo(6 / 16);
-    // 37.5% of winter against 23% of everything.
-    expect(winter.lift).toBeCloseTo((6 / 16) / (6 / 26));
-
-    // Summer is all Big, so Big is both the top and the signature there.
-    expect(seasons[2]!.signature!.key).toBe('Big');
-    expect(monthSignatures[0]!.key).toBe('Cozy');
-    expect(monthSignatures[6]!.key).toBe('Big');
+    const yule = seasonal(s, (x) => x.artist, { minPlays: 10 }).keys.find(
+      (k) => k.key === 'Yule',
+    )!;
+    expect([11, 0]).toContain(yule.peakMonth);
   });
 
-  it('keys signatures off the caller\'s key function', () => {
-    const genre = (x: { artist: string }) => (x.artist === 'Cozy' ? 'folk' : 'techno');
-    const s = [...many('Big', 0, 10), ...many('Cozy', 0, 6), ...many('Big', 6, 10)];
-    expect(seasonal(s, genre, { minPlays: 5 }).seasons[0]!.signature!.key).toBe('folk');
+  it('claims no season for perfectly uniform listening', () => {
+    // One play every single day from mid-March 2022 to the end of 2024. The raw
+    // month totals are visibly lopsided — long months, and Mar–Dec having come
+    // round one extra time — and a chart of those totals draws a summer bump
+    // out of nothing. This is the regression that motivated the whole view:
+    // uniform listening must yield zero seasonal claims.
+    const s: Scrobble[] = [];
+    for (const d = new Date(2022, 2, 14); d <= new Date(2024, 11, 31); d.setDate(d.getDate() + 1)) {
+      s.push(mk('Even', new Date(d)));
+    }
+    const { months, keys, notSeasonal } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    expect(Math.max(...months) / Math.min(...months)).toBeGreaterThan(1.15);
+    expect(keys).toEqual([]);
+    expect(notSeasonal).toBe(1);
   });
 
-  it('falls back to the top key, marked undistinctive, below the noise floor', () => {
-    // Two plays can't establish a seasonal habit; label the wedge honestly
-    // rather than crowning a 13x lift.
-    const s = [mk('A', new Date(2024, 0, 3)), mk('A', new Date(2024, 0, 4))];
-    const sig = seasonal(s, (x) => x.artist, { minPlays: 5 }).seasons[0]!.signature!;
-    expect(sig.key).toBe('A');
-    expect(sig.distinctive).toBe(false);
+  it('measures lift against your own months, not against the calendar', () => {
+    // Whole years of one play a day, so each month's share of all plays is
+    // exactly its share of the days — then an artist played *only* in December.
+    // Its December lift must be total / December's own total, exactly, and its
+    // other eleven months must be 0. That identity is the calendar cancelling.
+    const s: Scrobble[] = [];
+    for (const d = new Date(2022, 0, 1); d <= new Date(2024, 11, 31); d.setDate(d.getDate() + 1)) {
+      s.push(mk('Even', new Date(d)));
+    }
+    for (const y of [2022, 2023, 2024]) {
+      for (let i = 0; i < 20; i++) s.push(mk('Xmas', new Date(y, 11, 1 + i)));
+    }
+    const { keys, months, total } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    const xmas = keys.find((k) => k.key === 'Xmas')!;
+    expect(xmas.peakMonth).toBe(11);
+    expect(xmas.lift[11]).toBeCloseTo(total / months[11]!, 6);
+    expect(xmas.lift.filter((_, m) => m !== 11)).toEqual(new Array(11).fill(0));
+    expect(xmas.agreeingYears).toBe(3);
   });
 
-  it('leaves empty seasons unsigned', () => {
-    const { seasons } = seasonal([mk('A', new Date(2024, 6, 1))]);
-    expect(seasons[2]!.plays).toBe(1);
-    expect(seasons[0]!.signature).toBeNull();
-    expect(seasons[1]!.signature).toBeNull();
+  it('excludes a one-summer phase and counts it instead', () => {
+    // 60 plays inside a single June is the most concentrated thing in the data,
+    // but it never came back — that is a phase, not a season.
+    const s = [...baseline([2022, 2023, 2024]), ...many('Phase', 5, 60, 2023)];
+    const { keys, oneYearOnly } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    expect(keys.map((k) => k.key)).not.toContain('Phase');
+    expect(oneYearOnly).toBe(1);
+  });
+
+  it('discounts a key whose years disagree about when it peaks', () => {
+    // Same concentration as a real habit, but each year peaks somewhere else.
+    const s = [
+      ...baseline([2022, 2023, 2024]),
+      ...many('Drifter', 0, 30, 2022),
+      ...many('Drifter', 5, 30, 2023),
+      ...many('Drifter', 8, 30, 2024),
+      ...[2022, 2023, 2024].flatMap((y) => many('Steady', 2, 30, y)),
+    ];
+    const { keys } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    const steady = keys.find((k) => k.key === 'Steady')!;
+    expect(steady.agreeingYears).toBe(3);
+    // Drifter is every bit as concentrated as Steady inside each year, and a
+    // metric that only measured concentration would rank the two together.
+    expect(keys.map((k) => k.key)).not.toContain('Drifter');
+  });
+
+  it('ranks a thin key below a thick one of the same shape', () => {
+    // Identical winter shape, identical three years — the only difference is
+    // how much evidence there is for it. A partly-clumped profile is exactly
+    // what a handful of plays produces by chance, so the thin one must not sit
+    // level with a habit twenty times its size. Ranking on concentration alone
+    // scores these the same and floods the list with barely-played names.
+    const SHAPE = [5, 3, 2, 1, 0, 0, 0, 0, 1, 2, 3, 3];
+    const shaped = (artist: string, scale: number) =>
+      [2022, 2023, 2024].flatMap((y) =>
+        SHAPE.flatMap((n, m) => many(artist, m, n * scale, y)),
+      );
+    // A baseline this heavy keeps both keys small enough that neither moves the
+    // month shares it is measured against, so their lift profiles match.
+    const s = [...baseline([2022, 2023, 2024], 400), ...shaped('Thin', 1), ...shaped('Thick', 20)];
+
+    const { keys } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    const thin = keys.find((k) => k.key === 'Thin')!;
+    const thick = keys.find((k) => k.key === 'Thick')!;
+    expect(thin.plays).toBe(60);
+    expect(thick.plays).toBe(1200);
+    expect(thin.strength).toBeCloseTo(thick.strength, 1);
+    expect(thin.chanceDrift).toBeGreaterThan(thick.chanceDrift);
+    expect(thick.score).toBeGreaterThan(thin.score);
+    expect(keys.indexOf(thick)).toBeLessThan(keys.indexOf(thin));
+  });
+
+  it('keys by whatever the caller names, not just artists', () => {
+    const genre = (x: { artist: string }) => (x.artist === 'Cozy' ? 'folk' : 'pop');
+    const s = [
+      ...baseline([2022, 2023, 2024]),
+      ...[2022, 2023, 2024].flatMap((y) => many('Cozy', 0, 30, y)),
+    ];
+    const { keys } = seasonal(s, genre, { minPlays: 10 });
+    expect(keys[0]!.key).toBe('folk');
+  });
+
+  it('ignores keys under the play floor', () => {
+    const s = [...baseline([2023, 2024]), ...[2023, 2024].flatMap((y) => many('Rare', 0, 4, y))];
+    const { keys } = seasonal(s, (x) => x.artist, { minPlays: 10 });
+    expect(keys.map((k) => k.key)).not.toContain('Rare');
+  });
+
+  it('returns an empty ranking for an empty range', () => {
+    const d = seasonal([]);
+    expect(d.total).toBe(0);
+    expect(d.keys).toEqual([]);
+    expect(d.months).toHaveLength(12);
+    expect(d.coverage).toEqual(new Array(12).fill(0));
+  });
+
+  it('caps the ranking at `limit`, best first', () => {
+    const s = [
+      ...baseline([2022, 2023, 2024]),
+      ...['A', 'B', 'C'].flatMap((a, i) =>
+        [2022, 2023, 2024].flatMap((y) => many(a, i * 3, 30, y)),
+      ),
+    ];
+    const { keys } = seasonal(s, (x) => x.artist, { minPlays: 10, limit: 2 });
+    expect(keys).toHaveLength(2);
+    expect(keys[0]!.score).toBeGreaterThanOrEqual(keys[1]!.score);
   });
 });
 
