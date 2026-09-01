@@ -17,7 +17,7 @@ node --version   # should print v20+
 ## 2. Get the code
 
 ```bash
-sudo git clone https://git.sr.ht/~klahr/last-streamgraph /root/last-streamgraph
+sudo git clone https://github.com/klahr/last-streamgraph.git /root/last-streamgraph
 cd /root/last-streamgraph
 ```
 

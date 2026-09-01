@@ -440,7 +440,7 @@ export function ControlPanel({
 
       <footer className="mt-auto pt-2 text-xs text-slate-500">
         <a
-          href="https://git.sr.ht/~klahr/last-streamgraph"
+          href="https://github.com/klahr/last-streamgraph"
           target="_blank"
           rel="noreferrer"
           className="text-slate-500 transition hover:text-slate-300"
